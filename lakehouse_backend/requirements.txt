@@ -1,0 +1,26 @@
+pandas
+numpy
+scikit-learn
+pillow
+faiss-cpu
+sentence-transformers
+groq
+pyarrow>=17.0
+ 
+# --- Option D: local-mode Spark + Delta Lake OSS ---
+pyspark==3.5.1
+delta-spark==3.2.0
+
+# --- Auth layer ---
+fastapi
+uvicorn[standard]
+sqlalchemy
+passlib[bcrypt]
+bcrypt==4.0.1   # passlib 1.7.4 is incompatible with bcrypt>=4.1's internal API
+python-jose[cryptography]
+python-multipart
+
+# --- Bulk / multi-format ingestion ---
+openpyxl        # structured: .xlsx
+lxml            # semi-structured: .xml
+pypdf           # unstructured: .pdf text extraction

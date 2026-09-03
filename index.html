@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DataLake — AI-Enhanced Data Lakehouse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+/* =========================================================
+   RESET
+========================================================= */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+:root{
+  --bg:        #FAFAFA;
+  --surface:   #FFFFFF;
+  --border:    #E5E7EB;
+  --border-strong: #D1D5DB;
+  --text:      #111827;
+  --text-muted:#6B7280;
+  --text-faint:#9CA3AF;
+  --blue:      #2563EB;
+  --blue-dim:  #EFF4FF;
+  --green:     #16A34A;
+  --green-dim: #EEFBF2;
+  --amber:     #D97706;
+  --amber-dim: #FEF6E7;
+
+  --radius-sm: 6px;
+  --radius:    8px;
+  --radius-lg: 10px;
+
+  --shadow-xs: 0 1px 2px rgba(17,24,39,0.04);
+  --shadow-sm: 0 1px 3px rgba(17,24,39,0.06), 0 1px 2px rgba(17,24,39,0.04);
+  --shadow-md: 0 8px 24px rgba(17,24,39,0.08);
+
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+html{ scroll-behavior:smooth; }
+
+body{
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a{ text-decoration:none; color:inherit; }
+ul{ list-style:none; }
+button{ cursor:pointer; font-family:var(--font-ui); border:none; outline:none; background:none; color:inherit; }
+img,svg{ display:block; }
+
+.container{ max-width: 1160px; margin:0 auto; padding:0 24px; }
+
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-track{ background:var(--bg); }
+::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:10px; }
+::-webkit-scrollbar-thumb:hover{ background:var(--text-faint); }
+
+::selection{ background: var(--blue-dim); color: var(--blue); }
+
+/* =========================================================
+   TYPE HELPERS
+========================================================= */
+.eyebrow{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  color: var(--text-muted);
+}
+
+.section-head{
+  max-width: 620px;
+  margin-bottom: 44px;
+}
+.section-head.center{ margin-left:auto; margin-right:auto; text-align:center; }
+
+.section-head h2{
+  font-size: clamp(1.6rem, 2.6vw, 2.15rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin-top: 10px;
+  margin-bottom: 12px;
+}
+.section-head p{
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+section{ padding: 96px 0; border-bottom: 1px solid var(--border); }
+section:last-of-type{ border-bottom:none; }
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13.5px;
+  font-weight: 550;
+  border-radius: var(--radius-sm);
+  transition: background .15s var(--ease), border-color .15s var(--ease), transform .15s var(--ease);
+  white-space:nowrap;
+}
+.btn svg{ width:14px; height:14px; }
+
+.btn-dark{
+  background: var(--text);
+  color: #fff;
+  border: 1px solid var(--text);
+}
+.btn-dark:hover{ background:#000; }
+
+.btn-outline{
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.btn-outline:hover{ border-color:#9CA3AF; background:#fff; }
+
+.btn-ghost{
+  background:transparent;
+  color: var(--text-muted);
+  border:1px solid transparent;
+}
+.btn-ghost:hover{ color:var(--text); }
+
+.btn-sm{ height:32px; padding:0 12px; font-size:13px; }
+
+/* =========================================================
+   NAV
+========================================================= */
+.navbar{
+  position: fixed;
+  top:0; left:0; right:0;
+  z-index: 1000;
+  background: rgba(250,250,250,0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid transparent;
+  transition: border-color .2s var(--ease), background .2s var(--ease);
+}
+.navbar.scrolled{
+  border-bottom-color: var(--border);
+  background: rgba(250,250,250,0.96);
+}
+.navbar .container{
+  height: 56px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+
+.nav-logo{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-weight:700;
+  font-size:14.5px;
+  letter-spacing:-0.01em;
+  color: var(--text);
+}
+.nav-logo .mark{
+  width:22px; height:22px;
+  border-radius:5px;
+  background: var(--text);
+  display:flex; align-items:center; justify-content:center;
+}
+.nav-logo .mark svg{ width:13px; height:13px; }
+
+.nav-links{
+  display:flex;
+  align-items:center;
+  gap:2px;
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+}
+.nav-links a{
+  padding:7px 12px;
+  border-radius:6px;
+  font-size:13.5px;
+  color: var(--text-muted);
+  transition: color .15s, background .15s;
+}
+.nav-links a:hover{ color:var(--text); background:rgba(17,24,39,0.04); }
+.nav-links a.active{ color:var(--text); }
+
+.nav-actions{ display:flex; align-items:center; gap:8px; }
+
+.nav-toggle{
+  display:none;
+  width:32px; height:32px;
+  align-items:center; justify-content:center;
+  flex-direction:column;
+  gap:4px;
+}
+.nav-toggle span{
+  width:16px; height:1.5px; background:var(--text);
+  transition: transform .2s, opacity .2s;
+}
+.nav-toggle.active span:nth-child(1){ transform:translateY(5.5px) rotate(45deg); }
+.nav-toggle.active span:nth-child(2){ opacity:0; }
+.nav-toggle.active span:nth-child(3){ transform:translateY(-5.5px) rotate(-45deg); }
+
+/* =========================================================
+   ICON (utility line icons)
+========================================================= */
+.icon{ width:18px; height:18px; stroke:currentColor; stroke-width:1.6; fill:none; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+
+/* =========================================================
+   HERO
+========================================================= */
+.hero{
+  padding: 168px 0 96px;
+  border-bottom: 1px solid var(--border);
+}
+.hero .container{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  align-items:center;
+}
+
+.hero-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:5px 11px 5px 8px;
+  border:1px solid var(--border);
+  background: var(--surface);
+  border-radius: 100px;
+  font-size:12.5px;
+  color: var(--text-muted);
+  margin-bottom:22px;
+}
+.hero-badge .dot{
+  width:6px; height:6px; border-radius:50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-dim);
+}
+
+.hero-content h1{
+  font-size: clamp(2.1rem, 3.6vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--text);
+  margin-bottom: 18px;
+}
+
+.hero-content p{
+  font-size: 16px;
+  color: var(--text-muted);
+  max-width: 460px;
+  line-height: 1.7;
+  margin-bottom: 30px;
+}
+
+.hero-buttons{ display:flex; gap:10px; margin-bottom: 28px; }
+.hero-buttons .btn{ height:42px; padding:0 20px; font-size:14px; }
+
+.hero-meta{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  font-size:12.5px;
+  color: var(--text-faint);
+}
+.hero-meta span{ display:flex; align-items:center; gap:6px; }
+.hero-meta .icon{ width:14px; height:14px; }
+
+/* ---- hero visual: window mock ---- */
+.hero-visual{ position:relative; }
+.window{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow:hidden;
+}
+.window-bar{
+  display:flex; align-items:center; gap:6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: #FCFCFD;
+}
+.window-bar .wdot{ width:8px; height:8px; border-radius:50%; background:var(--border-strong); }
+.window-title{
+  margin-left:8px;
+  font-size:12px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.window-body{ padding: 20px 20px 16px; }
+
+.wb-row{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:10px;
+}
+.wb-title{ display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; }
+.wb-title .mark{ width:20px; height:20px; border-radius:5px; background:var(--text); display:flex; align-items:center; justify-content:center; }
+.wb-title .mark svg{ width:11px; height:11px; stroke:#fff; }
+
+.wb-label{ font-size:11.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em; font-weight:600; margin: 20px 0 8px; }
+
+.file-row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.3px;
+}
+.file-row:last-child{ border-bottom:none; }
+.file-left{ display:flex; align-items:center; gap:9px; color:var(--text); }
+.file-left .icon{ width:15px; height:15px; color:var(--text-faint); }
+.file-right{ display:flex; align-items:center; gap:14px; }
+.file-rows{ color: var(--text-faint); font-family: var(--font-mono); font-size:12px; }
+
+.chip{
+  display:inline-flex; align-items:center; gap:5px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.chip .d{ width:5px; height:5px; border-radius:50%; }
+.chip-green{ background:var(--green-dim); color:var(--green); }
+.chip-green .d{ background:var(--green); }
+.chip-amber{ background:var(--amber-dim); color:var(--amber); }
+.chip-amber .d{ background:var(--amber); }
+.chip-blue{ background:var(--blue-dim); color:var(--blue); }
+.chip-blue .d{ background:var(--blue); }
+
+.pipeline-strip{
+  display:flex; align-items:center; gap:6px;
+  margin-top:16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #FCFCFD;
+}
+.pipeline-strip .pstep{
+  display:flex; align-items:center; gap:5px;
+  font-size:11.5px; font-weight:600; color:var(--text-muted);
+}
+.pipeline-strip .pstep.done{ color: var(--green); }
+.pipeline-strip .pstep .icon{ width:12px; height:12px; }
+.pipeline-strip .sep{ color:var(--border-strong); font-size:11px; }
+
+/* =========================================================
+   LOGO / STAT STRIP
+========================================================= */
+.strip{ padding: 40px 0; border-bottom:1px solid var(--border); }
+.strip .container{
+  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap: 28px;
+}
+.strip-item{ display:flex; flex-direction:column; gap:2px; }
+.strip-item .num{ font-size:22px; font-weight:700; letter-spacing:-0.02em; color:var(--text); font-family: var(--font-mono); }
+.strip-item .lbl{ font-size:12.5px; color:var(--text-muted); }
+
+/* =========================================================
+   FEATURES
+========================================================= */
+.features-grid{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  border:1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow:hidden;
+  background: var(--border);
+  gap:1px;
+}
+.feature-card{
+  background: var(--surface);
+  padding: 26px 24px;
+  transition: background .15s var(--ease);
+}
+.feature-card:hover{ background:#FCFCFD; }
+.feature-card .ficon{
+  width:32px; height:32px;
+  border-radius:7px;
+  border:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  margin-bottom:16px;
+  color: var(--text);
+}
+.feature-card h3{
+  font-size:14.5px; font-weight:650; margin-bottom:6px; letter-spacing:-0.01em;
+}
+.feature-card p{ font-size:13.3px; color:var(--text-muted); line-height:1.65; }
+
+/* =========================================================
+   PIPELINE / HOW IT WORKS
+========================================================= */
+.pipeline-card{
+  border:1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 30px 28px;
+}
+.pipeline-card .fname{
+  display:flex; align-items:center; gap:8px;
+  font-family: var(--font-mono);
+  font-size:13px;
+  color: var(--text-muted);
+  margin-bottom: 22px;
+}
+.pipeline-card .fname .icon{ width:14px; height:14px; }
+
+.pipeline-track{ position:relative; display:flex; justify-content:space-between; }
+.pipeline-track::before{
+  content:'';
+  position:absolute;
+  top:15px; left:15px; right:15px;
+  height:1px;
+  background: var(--border);
+  z-index:0;
+}
+.ptrack-fill{
+  position:absolute; top:15px; left:15px; height:1px; background:var(--green); z-index:1;
+  width: 68%;
+}
+.pt-step{ position:relative; z-index:2; display:flex; flex-direction:column; align-items:center; gap:10px; width:110px; text-align:center; }
+.pt-circle{
+  width:30px; height:30px; border-radius:50%;
+  border:1px solid var(--border-strong);
+  background:var(--surface);
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:700; color:var(--text-faint);
+}
+.pt-step.done .pt-circle{ background:var(--green); border-color:var(--green); color:#fff; }
+.pt-step.active .pt-circle{ border-color:var(--blue); color:var(--blue); }
+.pt-circle .icon{ width:14px; height:14px; }
+.pt-label{ font-size:12.5px; font-weight:600; color:var(--text); }
+.pt-sub{ font-size:11px; color:var(--text-faint); }
+
+/* =========================================================
+   TECH STACK
+========================================================= */
+.tech-row{ display:flex; flex-wrap:wrap; gap:10px; }
+.tech-badge{
+  display:flex; align-items:center; gap:8px;
+  padding: 9px 14px;
+  border:1px solid var(--border);
+  border-radius: 100px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight:550;
+  color: var(--text);
+  transition: border-color .15s, background .15s;
+}
+.tech-badge:hover{ border-color: var(--border-strong); background:#FCFCFD; }
+.tech-badge .icon{ width:15px; height:15px; color:var(--text-muted); }
+
+/* =========================================================
+   DASHBOARD PREVIEW
+========================================================= */
+.browser{
+  border:1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow:hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.browser-bar{
+  display:flex; align-items:center; gap:10px;
+  padding: 10px 14px;
+  border-bottom:1px solid var(--border);
+  background:#FCFCFD;
+}
+.bdots{ display:flex; gap:6px; }
+.bdots span{ width:9px; height:9px; border-radius:50%; background:var(--border-strong); }
+.burl{
+  flex:1;
+  text-align:center;
+  font-family: var(--font-mono);
+  font-size:12px;
+  color: var(--text-faint);
+}
+
+.dash{ display:grid; grid-template-columns: 200px 1fr; min-height: 460px; }
+.dash-sidebar{
+  border-right:1px solid var(--border);
+  padding: 16px 12px;
+  background: #FCFCFD;
+}
+.dash-sidebar .dsitem{
+  display:flex; align-items:center; gap:9px;
+  padding: 7px 9px;
+  border-radius:6px;
+  font-size:13px;
+  color: var(--text-muted);
+  margin-bottom:2px;
+}
+.dash-sidebar .dsitem .icon{ width:15px; height:15px; }
+.dash-sidebar .dsitem.active{ background:#fff; color:var(--text); border:1px solid var(--border); font-weight:600; }
+.dash-sidebar .dsdiv{ height:1px; background:var(--border); margin:10px 4px; }
+
+.dash-main{ padding: 20px 24px; }
+.dash-search{
+  display:flex; align-items:center; gap:10px;
+  padding: 9px 12px;
+  border:1px solid var(--border);
+  border-radius: var(--radius);
+  font-size:13px;
+  color: var(--text-faint);
+  margin-bottom: 22px;
+}
+.dash-search .icon{ width:15px; height:15px; }
+.dash-search .kbd{
+  margin-left:auto;
+  font-family: var(--font-mono);
+  font-size:11px;
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:1px 6px;
+  color:var(--text-faint);
+}
+
+.stat-row{
+  display:flex;
+  border:1px solid var(--border);
+  border-radius: var(--radius);
+  overflow:hidden;
+  margin-bottom: 24px;
+}
+.stat-cell{
+  flex:1;
+  padding: 14px 16px;
+  border-right:1px solid var(--border);
+}
+.stat-cell:last-child{ border-right:none; }
+.stat-cell .slabel{ font-size:11.5px; color:var(--text-faint); margin-bottom:4px; }
+.stat-cell .sval{ font-size:19px; font-weight:700; letter-spacing:-0.01em; font-family: var(--font-mono); }
+
+.dtable{ border:1px solid var(--border); border-radius: var(--radius); overflow:hidden; margin-bottom:24px; }
+.dtable .trow{
+  display:grid; grid-template-columns: 2fr 1fr 1fr 1fr;
+  padding: 10px 14px;
+  border-bottom:1px solid var(--border);
+  font-size: 12.8px;
+  align-items:center;
+}
+.dtable .trow:last-child{ border-bottom:none; }
+.dtable .thead{ background:#FCFCFD; color:var(--text-faint); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.dtable .tname{ display:flex; align-items:center; gap:8px; color:var(--text); font-weight:500; }
+.dtable .tname .icon{ width:14px; height:14px; color:var(--text-faint); }
+.dtable .tmuted{ color:var(--text-muted); font-family: var(--font-mono); font-size:12px; }
+
+.mini-chart{ display:flex; align-items:flex-end; gap:5px; height:56px; }
+.mini-chart .bar{ flex:1; background: var(--border-strong); border-radius:2px 2px 0 0; }
+.mini-chart .bar.on{ background: var(--blue); }
+
+.chart-two{ display:grid; grid-template-columns: 1.4fr 1fr; gap:16px; }
+.chart-box{ border:1px solid var(--border); border-radius: var(--radius); padding:16px; }
+.chart-box .ctitle{ font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:14px; }
+
+/* =========================================================
+   CTA
+========================================================= */
+.cta{ padding: 88px 0; text-align:center; }
+.cta h2{
+  font-size: clamp(1.6rem, 2.6vw, 2.1rem);
+  font-weight:700; letter-spacing:-0.02em; margin-bottom:12px;
+}
+.cta p{ color:var(--text-muted); margin-bottom: 26px; }
+.cta .btn{ height:42px; padding:0 22px; font-size:14px; }
+
+/* =========================================================
+   FOOTER
+========================================================= */
+.footer{ padding: 56px 0 28px; }
+.footer-grid{
+  display:grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  gap: 32px;
+  padding-bottom: 40px;
+}
+.footer-brand p{ font-size:13px; color:var(--text-muted); max-width:260px; margin-top:12px; line-height:1.7; }
+.footer-col h4{ font-size:12.5px; font-weight:650; margin-bottom:14px; color:var(--text); }
+.footer-col ul li{ margin-bottom:10px; }
+.footer-col ul li a{ font-size:13px; color:var(--text-muted); }
+.footer-col ul li a:hover{ color:var(--text); }
+
+.footer-bottom{
+  display:flex; align-items:center; justify-content:space-between;
+  padding-top: 20px; border-top:1px solid var(--border);
+  font-size:12.5px; color:var(--text-faint);
+}
+.footer-bottom .flinks{ display:flex; gap:18px; }
+.footer-bottom .flinks a:hover{ color:var(--text); }
+
+/* =========================================================
+   SCROLL REVEAL
+========================================================= */
+.fade-in{ opacity:0; transform: translateY(14px); transition: opacity .6s var(--ease), transform .6s var(--ease); }
+.fade-in.visible{ opacity:1; transform:none; }
+.fade-in-delay-1.visible{ transition-delay:.05s; }
+.fade-in-delay-2.visible{ transition-delay:.1s; }
+.fade-in-delay-3.visible{ transition-delay:.15s; }
+
+@media (prefers-reduced-motion: reduce){
+  .fade-in{ opacity:1; transform:none; transition:none; }
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+@media (max-width: 960px){
+  .hero .container{ grid-template-columns:1fr; }
+  .hero{ padding-top:140px; }
+  .features-grid{ grid-template-columns: repeat(2,1fr); }
+  .footer-grid{ grid-template-columns: 1fr 1fr; }
+  .dash{ grid-template-columns: 160px 1fr; }
+}
+
+@media (max-width: 720px){
+  .nav-links{ display:none; }
+  .nav-toggle{ display:flex; }
+  .btn.btn-outline.nav-desktop{ display:none; }
+  .features-grid{ grid-template-columns: 1fr; }
+  .pipeline-track{ flex-wrap:wrap; gap:20px 0; }
+  .pipeline-track::before, .ptrack-fill{ display:none; }
+  .pt-step{ width:33%; }
+  .chart-two{ grid-template-columns:1fr; }
+  .stat-row{ flex-wrap:wrap; }
+  .stat-cell{ flex:1 1 50%; border-bottom:1px solid var(--border); }
+  .dash{ grid-template-columns: 1fr; }
+  .dash-sidebar{ display:none; }
+  .footer-grid{ grid-template-columns: 1fr; gap:24px; }
+  .footer-bottom{ flex-direction:column; gap:14px; align-items:flex-start; }
+  section{ padding: 64px 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===== NAV ===== -->
+<nav class="navbar" id="navbar">
+  <div class="container">
+    <a href="#hero" class="nav-logo">
+      <span class="mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 18l9 4 9-4"/></svg>
+      </span>
+      DataLake
+    </a>
+
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#hero" class="active">Overview</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#tech">Technology</a></li>
+      <li><a href="#dashboard">Dashboard</a></li>
+    </ul>
+
+    <div class="nav-actions">
+      <a href="login.html" class="btn btn-ghost btn-sm nav-desktop">Log in</a>
+      <a href="login.html" class="btn btn-dark btn-sm">Get started</a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<section class="hero" id="hero">
+  <div class="container">
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="dot"></span>
+        Now in public preview
+      </div>
+
+      <h1>The AI-enhanced data lakehouse</h1>
+
+      <p>Store, process, analyze and search structured, semi-structured and unstructured data — all in one place, powered by AI.</p>
+
+      <div class="hero-buttons">
+        <a href="login.html" class="btn btn-dark">
+          Get started
+          <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+        </a>
+        <a href="#dashboard" class="btn btn-outline">View dashboard</a>
+      </div>
+
+      <div class="hero-meta">
+        <span><svg class="icon" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg> No setup required</span>
+        <span><svg class="icon" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg> Works with CSV, JSON, Parquet</span>
+      </div>
+    </div>
+
+    <div class="hero-visual fade-in">
+      <div class="window">
+        <div class="window-bar">
+          <span class="wdot"></span><span class="wdot"></span><span class="wdot"></span>
+          <span class="window-title">AI Lakehouse</span>
+        </div>
+        <div class="window-body">
+          <div class="wb-row">
+            <div class="wb-title">
+              <span class="mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/></svg>
+              </span>
+              AI Lakehouse
+            </div>
+            <span class="chip chip-blue"><span class="d"></span>Live</span>
+          </div>
+
+          <div class="wb-label">Recent datasets</div>
+          <div class="file-row">
+            <div class="file-left">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              Retail.csv
+            </div>
+            <div class="file-right">
+              <span class="file-rows">152,324 rows</span>
+              <span class="chip chip-green"><span class="d"></span>Ready</span>
+            </div>
+          </div>
+          <div class="file-row">
+            <div class="file-left">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              Sales2024.csv
+            </div>
+            <div class="file-right">
+              <span class="file-rows">18,940 rows</span>
+              <span class="chip chip-green"><span class="d"></span>Ready</span>
+            </div>
+          </div>
+          <div class="file-row">
+            <div class="file-left">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              Employee.csv
+            </div>
+            <div class="file-right">
+              <span class="file-rows">640 rows</span>
+              <span class="chip chip-amber"><span class="d"></span>Processing</span>
+            </div>
+          </div>
+
+          <div class="pipeline-strip">
+            <span class="pstep done"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Bronze</span>
+            <span class="sep">→</span>
+            <span class="pstep done"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Silver</span>
+            <span class="sep">→</span>
+            <span class="pstep">Gold</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== STRIP ===== -->
+<section class="strip" style="padding:32px 0;">
+  <div class="container">
+    <div class="strip-item"><span class="num">2.4M</span><span class="lbl">Records indexed</span></div>
+    <div class="strip-item"><span class="num">18</span><span class="lbl">Active pipelines</span></div>
+    <div class="strip-item"><span class="num">4.8 TB</span><span class="lbl">Storage managed</span></div>
+    <div class="strip-item"><span class="num">1,247</span><span class="lbl">AI queries run</span></div>
+  </div>
+</section>
+
+<!-- ===== FEATURES ===== -->
+<section id="features">
+  <div class="container">
+    <div class="section-head fade-in">
+      <span class="eyebrow">Capabilities</span>
+      <h2>Built for the modern data stack</h2>
+      <p>Everything you need to ingest, transform, analyze, and govern your data at scale — all powered by AI.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card fade-in fade-in-delay-1">
+        <div class="ficon"><svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg></div>
+        <h3>Upload multi-format data</h3>
+        <p>Ingest CSV, JSON, Parquet, images, and more with automatic schema detection.</p>
+      </div>
+      <div class="feature-card fade-in fade-in-delay-2">
+        <div class="ficon"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg></div>
+        <h3>Medallion architecture</h3>
+        <p>Bronze → Silver → Gold transformation pipeline with built-in quality checks.</p>
+      </div>
+      <div class="feature-card fade-in fade-in-delay-3">
+        <div class="ficon"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+        <h3>Semantic search</h3>
+        <p>Find insights across structured and unstructured data using vector embeddings.</p>
+      </div>
+      <div class="feature-card fade-in fade-in-delay-1">
+        <div class="ficon"><svg class="icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3>Natural language queries</h3>
+        <p>Ask questions in plain English and get instant answers with auto-generated SQL.</p>
+      </div>
+      <div class="feature-card fade-in fade-in-delay-2">
+        <div class="ficon"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 4-8"/></svg></div>
+        <h3>Interactive dashboard</h3>
+        <p>Drag-and-drop analytics with real-time visualizations and KPI tracking.</p>
+      </div>
+      <div class="feature-card fade-in fade-in-delay-3">
+        <div class="ficon"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+        <h3>Data catalog</h3>
+        <p>Discover, understand, and govern your data assets with a unified metadata layer.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== HOW IT WORKS / PIPELINE ===== -->
+<section id="how-it-works">
+  <div class="container">
+    <div class="section-head fade-in">
+      <span class="eyebrow">Process</span>
+      <h2>From raw file to AI-ready data</h2>
+      <p>One file, five stages. No dashboards to configure — just watch it move through the pipeline.</p>
+    </div>
+
+    <div class="pipeline-card fade-in">
+      <div class="fname">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Retail.csv
+      </div>
+
+      <div class="pipeline-track">
+        <div class="ptrack-fill"></div>
+        <div class="pt-step done">
+          <div class="pt-circle"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+          <div class="pt-label">Uploaded</div>
+          <div class="pt-sub">0:02</div>
+        </div>
+        <div class="pt-step done">
+          <div class="pt-circle"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+          <div class="pt-label">Validated</div>
+          <div class="pt-sub">0:04</div>
+        </div>
+        <div class="pt-step done">
+          <div class="pt-circle"><svg class="icon" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+          <div class="pt-label">Bronze</div>
+          <div class="pt-sub">0:09</div>
+        </div>
+        <div class="pt-step active">
+          <div class="pt-circle">4</div>
+          <div class="pt-label">Silver</div>
+          <div class="pt-sub">Running…</div>
+        </div>
+        <div class="pt-step">
+          <div class="pt-circle">5</div>
+          <div class="pt-label">Gold</div>
+          <div class="pt-sub">Queued</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== TECH STACK ===== -->
+<section id="tech">
+  <div class="container">
+    <div class="section-head fade-in">
+      <span class="eyebrow">Ecosystem</span>
+      <h2>Built on tools you already trust</h2>
+      <p>Best-in-class, open-source tools for data processing and AI — no proprietary lock-in.</p>
+    </div>
+
+    <div class="tech-row fade-in">
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10"/><path d="M4 17h16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>Python</span>
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Pandas</span>
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 2 4-6"/></svg>Streamlit</span>
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Scikit-learn</span>
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 17V9"/><path d="M12 17V5"/><path d="M17 17v-7"/></svg>Plotly</span>
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>JSON</span>
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M9 10v10"/></svg>CSV</span>
+      <span class="tech-badge"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Images</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DASHBOARD PREVIEW ===== -->
+<section id="dashboard">
+  <div class="container">
+    <div class="section-head fade-in">
+      <span class="eyebrow">Preview</span>
+      <h2>One workspace for all your data</h2>
+      <p>Real-time visibility into your lakehouse — datasets, pipeline status, and AI-powered search in a single view.</p>
+    </div>
+
+    <div class="browser fade-in">
+      <div class="browser-bar">
+        <div class="bdots"><span></span><span></span><span></span></div>
+        <div class="burl">app.datalake.ai/dashboard</div>
+        <div style="width:36px;"></div>
+      </div>
+
+      <div class="dash">
+        <div class="dash-sidebar">
+          <div class="dsitem active"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</div>
+          <div class="dsitem"><svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>Datasets</div>
+          <div class="dsitem"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>Pipeline</div>
+          <div class="dsitem"><svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>SQL Explorer</div>
+          <div class="dsitem"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Semantic Search</div>
+          <div class="dsitem"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Reports</div>
+          <div class="dsdiv"></div>
+          <div class="dsitem"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</div>
+        </div>
+
+        <div class="dash-main">
+          <div class="dash-search">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            Search across 2.4M records…
+            <span class="kbd">⌘K</span>
+          </div>
+
+          <div class="stat-row">
+            <div class="stat-cell"><div class="slabel">Total records</div><div class="sval">2.4M</div></div>
+            <div class="stat-cell"><div class="slabel">Active pipelines</div><div class="sval">18</div></div>
+            <div class="stat-cell"><div class="slabel">Storage used</div><div class="sval">4.8 TB</div></div>
+            <div class="stat-cell"><div class="slabel">AI queries</div><div class="sval">1,247</div></div>
+          </div>
+
+          <div class="dtable">
+            <div class="trow thead">
+              <div>Name</div><div>Rows</div><div>Status</div><div>Updated</div>
+            </div>
+            <div class="trow">
+              <div class="tname"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Retail.csv</div>
+              <div class="tmuted">152,324</div>
+              <div><span class="chip chip-green"><span class="d"></span>Ready</span></div>
+              <div class="tmuted">Today</div>
+            </div>
+            <div class="trow">
+              <div class="tname"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Sales2024.csv</div>
+              <div class="tmuted">18,940</div>
+              <div><span class="chip chip-green"><span class="d"></span>Ready</span></div>
+              <div class="tmuted">Today</div>
+            </div>
+            <div class="trow">
+              <div class="tname"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Employee.csv</div>
+              <div class="tmuted">640</div>
+              <div><span class="chip chip-amber"><span class="d"></span>Processing</span></div>
+              <div class="tmuted">2m ago</div>
+            </div>
+          </div>
+
+          <div class="chart-two">
+            <div class="chart-box">
+              <div class="ctitle">Daily ingestion volume</div>
+              <div class="mini-chart">
+                <div class="bar" style="height:35%"></div>
+                <div class="bar" style="height:52%"></div>
+                <div class="bar" style="height:40%"></div>
+                <div class="bar on" style="height:78%"></div>
+                <div class="bar" style="height:58%"></div>
+                <div class="bar" style="height:66%"></div>
+                <div class="bar" style="height:48%"></div>
+                <div class="bar on" style="height:90%"></div>
+                <div class="bar" style="height:60%"></div>
+                <div class="bar" style="height:44%"></div>
+              </div>
+            </div>
+            <div class="chart-box">
+              <div class="ctitle">Data distribution</div>
+              <div style="display:flex; flex-direction:column; gap:10px; margin-top:6px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; font-size:12.5px;"><span style="color:var(--text-muted)">Structured</span><span style="font-family:var(--font-mono)">58%</span></div>
+                <div style="display:flex; align-items:center; justify-content:space-between; font-size:12.5px;"><span style="color:var(--text-muted)">Semi-structured</span><span style="font-family:var(--font-mono)">27%</span></div>
+                <div style="display:flex; align-items:center; justify-content:space-between; font-size:12.5px;"><span style="color:var(--text-muted)">Unstructured</span><span style="font-family:var(--font-mono)">15%</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CTA ===== -->
+<section class="cta">
+  <div class="container fade-in">
+    <h2>Start working with your data today</h2>
+    <p>No credit card required. Set up your first pipeline in minutes.</p>
+    <a href="login.html" class="btn btn-dark">
+      Get started
+      <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+    </a>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer class="footer" id="footer" style="border-top:1px solid var(--border);">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="#" class="nav-logo">
+          <span class="mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/></svg>
+          </span>
+          DataLake
+        </a>
+        <p>AI-enhanced data lakehouse platform — store, process, analyze, and search all your data with AI.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#tech">Technology</a></li>
+          <li><a href="#dashboard">Dashboard</a></li>
+          <li><a href="#">Pricing</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <ul>
+          <li><a href="#">About</a></li>
+          <li><a href="#">Team</a></li>
+          <li><a href="#">Careers</a></li>
+          <li><a href="#">Blog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Support</h4>
+        <ul>
+          <li><a href="#">Help center</a></li>
+          <li><a href="#">Documentation</a></li>
+          <li><a href="#">API status</a></li>
+          <li><a href="#">Contact</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <span>© 2026 DataLake. All rights reserved.</span>
+      <div class="flinks">
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+        <a href="#">Docs</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+
+  var navbar = document.getElementById('navbar');
+  var navToggle = document.getElementById('navToggle');
+  var navLinks = document.getElementById('navLinks');
+
+  window.addEventListener('scroll', function(){
+    navbar.classList.toggle('scrolled', window.scrollY > 8);
+  });
+
+  navToggle.addEventListener('click', function(){
+    var open = navLinks.classList.toggle('open');
+    navToggle.classList.toggle('active');
+    navToggle.setAttribute('aria-expanded', open);
+    navLinks.style.cssText = open
+      ? 'display:flex;flex-direction:column;position:fixed;top:56px;left:0;right:0;background:#fff;padding:12px;border-bottom:1px solid var(--border);transform:none;'
+      : '';
+  });
+
+  document.querySelectorAll('.nav-links a').forEach(function(link){
+    link.addEventListener('click', function(){
+      navLinks.classList.remove('open');
+      navToggle.classList.remove('active');
+      navLinks.style.cssText = '';
+    });
+  });
+
+  var navItems = document.querySelectorAll('.nav-links a');
+  var sections = document.querySelectorAll('section[id]');
+  function updateActive(){
+    var pos = window.scrollY + 120;
+    var current = '';
+    sections.forEach(function(s){
+      if (pos >= s.offsetTop && pos < s.offsetTop + s.offsetHeight) current = s.id;
+    });
+    navItems.forEach(function(a){
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  }
+  window.addEventListener('scroll', updateActive);
+  window.addEventListener('load', updateActive);
+
+  document.querySelectorAll('a[href^="#"]').forEach(function(a){
+    a.addEventListener('click', function(e){
+      var id = this.getAttribute('href');
+      if (id === '#') return;
+      var target = document.querySelector(id);
+      if (target){
+        e.preventDefault();
+        window.scrollTo({ top: target.offsetTop - 64, behavior: 'smooth' });
+      }
+    });
+  });
+
+  var observer = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if (entry.isIntersecting) entry.target.classList.add('visible');
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+  document.querySelectorAll('.fade-in').forEach(function(el){ observer.observe(el); });
+})();
+</script>
+
+</body>
+</html>

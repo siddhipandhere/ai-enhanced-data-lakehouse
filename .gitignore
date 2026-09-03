@@ -1,0 +1,24 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Node/frontend
+node_modules/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Data / lakehouse artifacts (adjust paths to match your project)
+lakehouse_backend/data/
+lakehouse_backend/**/*.parquet
+lakehouse_backend/**/delta_log/
+
+# IDE
+.vscode/
+.idea/
+
+*.zip

@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — DataLake</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+/* =========================================================
+   RESET + TOKENS (shared with landing/login pages)
+========================================================= */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+:root{
+  --bg:        #FAFAFA;
+  --surface:   #FFFFFF;
+  --border:    #E5E7EB;
+  --border-strong: #D1D5DB;
+  --text:      #111827;
+  --text-muted:#6B7280;
+  --text-faint:#9CA3AF;
+  --blue:      #2563EB;
+  --blue-dim:  #EFF4FF;
+  --green:     #16A34A;
+  --green-dim: #EEFBF2;
+  --amber:     #D97706;
+  --amber-dim: #FEF6E7;
+  --red:       #DC2626;
+  --red-dim:   #FEF2F2;
+
+  --radius-sm: 6px;
+  --radius:    8px;
+  --radius-lg: 10px;
+
+  --shadow-xs: 0 1px 2px rgba(17,24,39,0.04);
+  --shadow-sm: 0 1px 3px rgba(17,24,39,0.06), 0 1px 2px rgba(17,24,39,0.04);
+  --shadow-md: 0 8px 24px rgba(17,24,39,0.08);
+
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --sidebar-w: 216px;
+  --topbar-h: 56px;
+}
+
+body{
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a{ text-decoration:none; color:inherit; }
+ul{ list-style:none; }
+button{ cursor:pointer; font-family:var(--font-ui); border:none; outline:none; background:none; color:inherit; }
+img,svg{ display:block; }
+input,select{ font-family:var(--font-ui); }
+
+.icon{ width:18px; height:18px; stroke:currentColor; stroke-width:1.6; fill:none; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-track{ background:var(--bg); }
+::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:10px; }
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  height: 36px; padding: 0 14px;
+  font-size: 13.5px; font-weight: 550;
+  border-radius: var(--radius-sm);
+  transition: background .15s var(--ease), border-color .15s var(--ease), opacity .15s var(--ease);
+  white-space:nowrap;
+}
+.btn svg{ width:14px; height:14px; }
+.btn-dark{ background: var(--text); color: #fff; border: 1px solid var(--text); }
+.btn-dark:hover{ background:#000; }
+.btn-dark:disabled{ opacity:.5; cursor:default; }
+.btn-outline{ background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); }
+.btn-outline:hover{ border-color:#9CA3AF; background:#FCFCFD; }
+.btn-ghost{ background:transparent; color: var(--text-muted); border:1px solid transparent; }
+.btn-danger{ color: var(--red); }
+.btn-danger:hover{ background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.2); }
+.btn-danger-solid{ background: var(--red); color: #fff; border: 1px solid var(--red); }
+.btn-danger-solid:hover{ opacity: 0.9; }
+.btn-ghost:hover{ color:var(--text); background:rgba(17,24,39,0.04); }
+.btn-sm{ height:30px; padding:0 10px; font-size:12.5px; }
+
+.spinner{
+  width:13px; height:13px; border-radius:50%;
+  border:2px solid rgba(255,255,255,0.35); border-top-color:#fff;
+  animation: spin .6s linear infinite; display:none;
+}
+.btn.loading .spinner{ display:inline-block; }
+@keyframes spin{ to{ transform:rotate(360deg); } }
+
+.chip{ display:inline-flex; align-items:center; gap:5px; padding: 2px 8px; border-radius: 100px; font-size: 11.5px; font-weight: 600; }
+.chip .d{ width:5px; height:5px; border-radius:50%; }
+.chip-green{ background:var(--green-dim); color:var(--green); } .chip-green .d{ background:var(--green); }
+.chip-amber{ background:var(--amber-dim); color:var(--amber); } .chip-amber .d{ background:var(--amber); }
+.chip-blue{ background:var(--blue-dim); color:var(--blue); } .chip-blue .d{ background:var(--blue); }
+.chip-red{ background:var(--red-dim); color:var(--red); } .chip-red .d{ background:var(--red); }
+
+/* =========================================================
+   SHELL LAYOUT
+========================================================= */
+.shell{ display:flex; min-height:100vh; }
+
+/* ---- sidebar ---- */
+.sidebar{
+  width: var(--sidebar-w);
+  flex-shrink:0;
+  border-right:1px solid var(--border);
+  background: #FCFCFD;
+  display:flex; flex-direction:column;
+  position:fixed; top:0; bottom:0; left:0;
+  z-index:100;
+  transition: transform .2s var(--ease);
+}
+.sidebar-head{
+  height: var(--topbar-h);
+  display:flex; align-items:center; gap:8px;
+  padding: 0 16px;
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{ display:flex; align-items:center; gap:8px; font-weight:700; font-size:14.5px; letter-spacing:-0.01em; color: var(--text); }
+.nav-logo .mark{ width:22px; height:22px; border-radius:5px; background: var(--text); display:flex; align-items:center; justify-content:center; }
+.nav-logo .mark svg{ width:13px; height:13px; }
+
+.sidebar-nav{ padding: 12px; flex:1; overflow-y:auto; }
+.dsitem{
+  display:flex; align-items:center; gap:9px;
+  padding: 8px 10px;
+  border-radius:6px;
+  font-size:13px; font-weight:500;
+  color: var(--text-muted);
+  margin-bottom:2px;
+  transition: background .12s var(--ease), color .12s var(--ease);
+}
+.dsitem:hover{ background:rgba(17,24,39,0.045); color:var(--text); }
+.dsitem .icon{ width:15px; height:15px; }
+.dsitem.active{ background:#fff; color:var(--text); border:1px solid var(--border); font-weight:600; box-shadow: var(--shadow-xs); }
+.dsdiv{ height:1px; background:var(--border); margin:12px 6px; }
+.nav-section-label{ font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faint); padding: 8px 10px 6px; }
+
+.sidebar-foot{
+  padding: 12px; border-top:1px solid var(--border);
+}
+.user-row{ display:flex; align-items:center; gap:9px; padding:6px; border-radius:8px; }
+.user-row:hover{ background:rgba(17,24,39,0.04); }
+.user-avatar{
+  width:28px; height:28px; border-radius:50%;
+  background: var(--text); color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700; flex-shrink:0;
+}
+.user-meta{ flex:1; min-width:0; }
+.user-name{ font-size:12.8px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.user-email{ font-size:11px; color:var(--text-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.logout-btn{ color:var(--text-faint); flex-shrink:0; }
+.logout-btn:hover{ color:var(--red); }
+
+/* ---- main ---- */
+.main{ flex:1; margin-left: var(--sidebar-w); display:flex; flex-direction:column; min-width:0; }
+
+.topbar{
+  height: var(--topbar-h);
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 0 24px;
+  background: rgba(250,250,250,0.9);
+  backdrop-filter: blur(8px);
+  position:sticky; top:0; z-index:50;
+}
+.topbar-title{ font-size:14.5px; font-weight:650; letter-spacing:-0.01em; display:flex; align-items:center; gap:8px; }
+.nav-toggle-mobile{ display:none; width:32px; height:32px; align-items:center; justify-content:center; }
+.topbar-search{
+  display:flex; align-items:center; gap:8px;
+  height:32px; padding: 0 10px;
+  border:1px solid var(--border); border-radius: var(--radius-sm);
+  font-size:12.5px; color:var(--text-faint);
+  width:260px;
+}
+.topbar-search .icon{ width:14px; height:14px; }
+.topbar-search .kbd{ margin-left:auto; font-family:var(--font-mono); font-size:10.5px; border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+.topbar-actions{ display:flex; align-items:center; gap:10px; }
+
+.content{ padding: 24px 28px 60px; }
+
+.page-head{ margin-bottom:22px; }
+.page-head h1{ font-size:20px; font-weight:700; letter-spacing:-0.02em; margin-bottom:4px; }
+.page-head p{ font-size:13px; color:var(--text-muted); }
+.page-head-row{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+
+/* =========================================================
+   PANELS (tab views)
+========================================================= */
+.view{ display:none; }
+.view.active{ display:block; }
+
+/* ---- stat row ---- */
+.stat-row{ display:flex; border:1px solid var(--border); border-radius: var(--radius); overflow:hidden; margin-bottom: 22px; background:var(--surface); flex-wrap:wrap; }
+.stat-cell{ flex:1; min-width:140px; padding: 16px 18px; border-right:1px solid var(--border); }
+.stat-cell:last-child{ border-right:none; }
+.stat-cell .slabel{ font-size:11.5px; color:var(--text-faint); margin-bottom:5px; }
+.stat-cell .sval{ font-size:21px; font-weight:700; letter-spacing:-0.01em; font-family: var(--font-mono); }
+
+/* ---- dataset table ---- */
+.card{ border:1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow:hidden; margin-bottom:22px; }
+.card-head{ display:flex; align-items:center; justify-content:space-between; padding: 14px 18px; border-bottom:1px solid var(--border); }
+.card-head h3{ font-size:13.5px; font-weight:650; }
+.card-head .sub{ font-size:12px; color:var(--text-faint); }
+
+.dtable{ width:100%; }
+.dtable .trow{ display:grid; grid-template-columns: 2.2fr 1fr 1fr 1fr 90px; padding: 11px 18px; border-bottom:1px solid var(--border); font-size: 12.8px; align-items:center; }
+.dtable .trow:last-child{ border-bottom:none; }
+.dtable .thead{ background:#FCFCFD; color:var(--text-faint); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
+.dtable .tname{ display:flex; align-items:center; gap:8px; color:var(--text); font-weight:500; min-width:0; }
+.dtable .tname span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dtable .tname .icon{ width:14px; height:14px; color:var(--text-faint); flex-shrink:0; }
+.dtable .tmuted{ color:var(--text-muted); font-family: var(--font-mono); font-size:12px; }
+.dtable .trow-actions{ text-align:right; }
+
+.empty-row{ padding: 40px 18px; text-align:center; color:var(--text-faint); font-size:13px; }
+.empty-row .icon{ width:26px; height:26px; margin:0 auto 10px; color:var(--border-strong); }
+
+/* ---- upload dropzone ---- */
+.dropzone{
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 44px 24px;
+  text-align:center;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+  cursor:pointer;
+}
+.dropzone:hover, .dropzone.dragover{ border-color: var(--blue); background: var(--blue-dim); }
+.dropzone .dzicon{
+  width:44px; height:44px; border-radius:10px;
+  background:#FCFCFD; border:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  margin: 0 auto 16px; color:var(--text-muted);
+}
+.dropzone h3{ font-size:14.5px; font-weight:650; margin-bottom:5px; }
+.dropzone p{ font-size:12.8px; color:var(--text-muted); margin-bottom:16px; }
+.dropzone .formats{ display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:16px; }
+.format-badge{ font-family:var(--font-mono); font-size:10.5px; padding:3px 8px; border:1px solid var(--border); border-radius:100px; color:var(--text-faint); background:var(--surface); }
+
+.queue{ margin-top:18px; }
+.queue-item{
+  display:flex; align-items:center; gap:12px;
+  padding: 10px 14px;
+  border:1px solid var(--border); border-radius: var(--radius);
+  margin-bottom:8px;
+  background:var(--surface);
+}
+.queue-item .qicon{ width:32px; height:32px; border-radius:7px; background:#FCFCFD; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--text-muted); flex-shrink:0; }
+.queue-item .qicon .icon{ width:15px; height:15px; }
+.queue-item .qmeta{ flex:1; min-width:0; }
+.queue-item .qname{ font-size:13px; font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.queue-item .qsize{ font-size:11.3px; color:var(--text-faint); font-family:var(--font-mono); }
+.queue-item .qstatus{ flex-shrink:0; }
+.queue-item .qremove{ color:var(--text-faint); flex-shrink:0; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:6px; }
+.queue-item .qremove:hover{ color:var(--red); background:var(--red-dim); }
+.queue-item .qremove .icon{ width:14px; height:14px; }
+
+.progress-bar{ height:4px; background:var(--border); border-radius:2px; margin-top:6px; overflow:hidden; }
+.progress-bar .fill{ height:100%; background:var(--blue); width:0%; transition: width .25s var(--ease); }
+
+.upload-footer{ display:flex; align-items:center; justify-content:space-between; margin-top:16px; gap:12px; flex-wrap:wrap; }
+.upload-footer .count{ font-size:12.5px; color:var(--text-muted); }
+
+.field-inline{ margin-top:14px; }
+.field-inline label{ display:block; font-size:12px; font-weight:600; margin-bottom:6px; }
+.field-inline input[type="file"]{ display:none; }
+
+/* ---- placeholder panel (pipeline / sql / semantic / reports / settings) ---- */
+.placeholder-panel{
+  border:1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 56px 24px;
+  text-align:center;
+  color:var(--text-muted);
+}
+.placeholder-panel .picon{
+  width:42px; height:42px; border-radius:10px;
+  background:#FCFCFD; border:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  margin:0 auto 16px; color:var(--text-faint);
+}
+.placeholder-panel h3{ font-size:14.5px; font-weight:650; color:var(--text); margin-bottom:6px; }
+.placeholder-panel p{ font-size:13px; max-width:360px; margin:0 auto; }
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+@media (max-width: 900px){
+  .sidebar{ transform: translateX(-100%); box-shadow: var(--shadow-md); }
+  .sidebar.open{ transform: translateX(0); }
+  .main{ margin-left:0; }
+  .nav-toggle-mobile{ display:flex; }
+  .topbar-search{ display:none; }
+  .stat-row{ flex-wrap:wrap; }
+  .stat-cell{ flex:1 1 50%; border-bottom:1px solid var(--border); }
+  .dtable .trow{ grid-template-columns: 1.6fr 1fr 1fr; }
+  .dtable .trow > div:nth-child(4), .dtable .trow > div:nth-child(5){ display:none; }
+}
+/* ---- form controls + result panels (Pipeline/SQL/Search/Reports) ---- */
+.field{ margin-bottom:14px; }
+.field label{ display:block; font-size:12px; font-weight:600; margin-bottom:6px; color:var(--text); }
+.field select, .field input[type="text"], .field textarea{
+  width:100%; border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  background:var(--surface); color:var(--text); font-size:13px; padding:9px 10px;
+  font-family:var(--font-ui);
+}
+.field textarea{ resize:vertical; min-height:70px; font-family:var(--font-mono); }
+.field-row{ display:flex; gap:12px; flex-wrap:wrap; }
+.field-row > .field{ flex:1; min-width:160px; }
+.panel-card{ padding:18px; }
+.panel-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:4px; }
+.result-meta{ font-size:12px; color:var(--text-faint); margin:10px 0 4px; }
+.result-scroll{ overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-sm); }
+.result-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+.result-table th{ text-align:left; background:#FCFCFD; color:var(--text-faint); font-weight:600;
+  font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; padding:9px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.result-table td{ padding:8px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); color:var(--text); white-space:nowrap; max-width:280px; overflow:hidden; text-overflow:ellipsis; }
+.result-table tr:last-child td{ border-bottom:none; }
+.inline-msg{ font-size:12.5px; color:var(--text-muted); padding:10px 2px; }
+.inline-msg.error{ color:var(--red); }
+.stage-row{ display:grid; grid-template-columns: 2fr repeat(4, 1fr); gap:10px; padding:11px 18px; border-bottom:1px solid var(--border); align-items:center; font-size:12.8px; }
+.stage-row.thead{ background:#FCFCFD; color:var(--text-faint); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
+.report-item{ border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px 16px; margin-bottom:12px; }
+.report-item .rq{ font-weight:600; font-size:13px; margin-bottom:4px; }
+.report-item .rs{ font-size:12.8px; color:var(--text-muted); line-height:1.5; }
+.report-item .rmeta{ font-size:11px; color:var(--text-faint); margin-top:8px; font-family:var(--font-mono); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <a href="index.html" class="nav-logo">
+        <span class="mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 18l9 4 9-4"/></svg>
+        </span>
+        DataLake
+      </a>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="dsitem active" data-view="overview">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Overview
+      </div>
+      <div class="dsitem" data-view="datasets">
+        <svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+        Datasets
+      </div>
+      <div class="dsitem" data-view="upload">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+        Upload
+      </div>
+      <div class="dsitem" data-view="pipeline">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>
+        Pipeline
+      </div>
+      <div class="dsitem" data-view="sql">
+        <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        SQL Explorer
+      </div>
+      <div class="dsitem" data-view="semantic">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        Semantic Search
+      </div>
+      <div class="dsitem" data-view="reports">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Reports
+      </div>
+      <div class="dsdiv"></div>
+      <div class="dsitem" data-view="settings">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </div>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="user-row">
+        <div class="user-avatar" id="userAvatar">U</div>
+        <div class="user-meta">
+          <div class="user-name" id="userName">Guest user</div>
+          <div class="user-email" id="userEmail">Not signed in</div>
+        </div>
+        <button class="logout-btn" id="logoutBtn" title="Log out">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN ===== -->
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <button class="nav-toggle-mobile" id="navToggleMobile">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="topbar-title" id="topbarTitle">Overview</div>
+      </div>
+      <div class="topbar-actions">
+        <div class="topbar-search">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Search across your data…
+          <span class="kbd">⌘K</span>
+        </div>
+        <button class="btn btn-dark btn-sm" id="quickUploadBtn">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+          Upload
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ===================== OVERVIEW ===================== -->
+      <section class="view active" id="view-overview">
+        <div class="page-head">
+          <h1>Overview</h1>
+          <p>Real-time visibility into your lakehouse — datasets, pipeline status, and usage.</p>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat-cell"><div class="slabel">Total records</div><div class="sval" id="statRecords">0</div></div>
+          <div class="stat-cell"><div class="slabel">Datasets</div><div class="sval" id="statDatasets">0</div></div>
+          <div class="stat-cell"><div class="slabel">Storage used</div><div class="sval" id="statStorage">0 MB</div></div>
+          <div class="stat-cell"><div class="slabel">AI queries</div><div class="sval" id="statQueries">0</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Dataset breakdown</h3>
+            <select id="overviewBreakdownSelect"></select>
+          </div>
+          <div id="overviewChartsMsg" class="inline-msg" style="display:none;"></div>
+          <div class="chart-grid" id="overviewChartsGrid" style="display:none; grid-template-columns:1fr 1fr; gap:24px; padding:8px 4px;">
+            <div>
+              <div class="sub" style="margin-bottom:8px;">Records by category</div>
+              <canvas id="overviewCategoryChart" height="220"></canvas>
+            </div>
+            <div>
+              <div class="sub" style="margin-bottom:8px;">Avg. price by category</div>
+              <canvas id="overviewPriceChart" height="220"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Recent datasets</h3>
+            <span class="sub" id="overviewTableSub">No datasets yet</span>
+          </div>
+          <div class="dtable" id="overviewTable">
+            <div class="trow thead">
+              <div>Name</div><div>Rows</div><div>Category</div><div>Status</div><div></div>
+            </div>
+            <!-- rows injected by JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== DATASETS ===================== -->
+      <section class="view" id="view-datasets">
+        <div class="page-head page-head-row">
+          <div>
+            <h1>Datasets</h1>
+            <p>Every file you've ingested, tagged with its Bronze table and status.</p>
+          </div>
+          <button class="btn btn-outline" data-goto="upload">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            New upload
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="dtable" id="datasetsTable">
+            <div class="trow thead">
+              <div>Name</div><div>Rows</div><div>Category</div><div>Status</div><div></div>
+            </div>
+            <!-- rows injected by JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== UPLOAD ===================== -->
+      <section class="view" id="view-upload">
+        <div class="page-head">
+          <h1>Upload data</h1>
+          <p>Drop in any mix of structured, semi-structured, or unstructured files — they land in Bronze automatically.</p>
+        </div>
+
+        <div class="card" style="padding:22px;">
+          <div class="dropzone" id="dropzone">
+            <div class="dzicon">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+            </div>
+            <h3>Drag and drop files here</h3>
+            <p>or click to browse from your computer</p>
+            <button class="btn btn-outline btn-sm" type="button" id="browseBtn">Choose files</button>
+            <input type="file" id="fileInput" multiple />
+            <div class="formats">
+              <span class="format-badge">.csv</span>
+              <span class="format-badge">.xlsx</span>
+              <span class="format-badge">.json</span>
+              <span class="format-badge">.parquet</span>
+              <span class="format-badge">.xml</span>
+              <span class="format-badge">.pdf</span>
+              <span class="format-badge">.png / .jpg</span>
+              <span class="format-badge">.txt</span>
+            </div>
+          </div>
+
+          <div class="queue" id="queue"></div>
+
+          <div class="upload-footer" id="uploadFooter" style="display:none;">
+            <span class="count" id="queueCount">0 files selected</span>
+            <div style="display:flex; gap:10px;">
+              <button class="btn btn-ghost btn-sm" id="clearQueueBtn">Clear all</button>
+              <button class="btn btn-dark" id="uploadBtn">
+                <span class="spinner"></span>
+                <span class="btn-label">Upload all</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== PIPELINE ===================== -->
+      <section class="view" id="view-pipeline">
+        <div class="page-head page-head-row">
+          <div>
+            <h1>Pipeline</h1>
+            <p>Bronze → Silver → Gold → Vector index job status, per dataset.</p>
+          </div>
+          <button class="btn btn-outline btn-sm" id="pipelineRefreshBtn">Refresh</button>
+        </div>
+        <div class="card">
+          <div id="pipelineTable">
+            <div class="stage-row thead">
+              <div>Dataset</div><div>Bronze</div><div>Silver</div><div>Gold</div><div>Vector index</div>
+            </div>
+          </div>
+          <div class="inline-msg" id="pipelineEmpty" style="display:none;">No datasets yet — upload something to see pipeline status here.</div>
+        </div>
+      </section>
+
+      <!-- ===================== SQL EXPLORER ===================== -->
+      <section class="view" id="view-sql">
+        <div class="page-head"><h1>SQL Explorer</h1><p>Query your Gold tables directly.</p></div>
+        <div class="card panel-card">
+          <div class="field-row">
+            <div class="field">
+              <label>Dataset</label>
+              <select id="sqlTableSelect"><option value="">Select a dataset…</option></select>
+            </div>
+          </div>
+          <div class="field">
+            <label>Filter (pandas <code>query()</code> expression — leave blank for all rows)</label>
+            <textarea id="sqlQueryInput" placeholder="e.g. price &gt; 100 and category == 'Electronics'"></textarea>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Group by (comma-separated, optional)</label>
+              <input type="text" id="sqlGroupByInput" placeholder="e.g. category" />
+            </div>
+            <div class="field">
+              <label>Aggregate column</label>
+              <input type="text" id="sqlAggColInput" placeholder="e.g. revenue" />
+            </div>
+            <div class="field">
+              <label>Aggregate function</label>
+              <select id="sqlAggFuncInput">
+                <option value="">—</option>
+                <option value="sum">sum</option>
+                <option value="mean">mean</option>
+                <option value="count">count</option>
+                <option value="max">max</option>
+                <option value="min">min</option>
+              </select>
+            </div>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-dark btn-sm" id="sqlRunBtn">Run query</button>
+          </div>
+          <div id="sqlResultArea"></div>
+        </div>
+      </section>
+
+      <!-- ===================== SEMANTIC SEARCH ===================== -->
+      <section class="view" id="view-semantic">
+        <div class="page-head"><h1>Semantic Search</h1><p>Search across structured and unstructured data with vector embeddings.</p></div>
+        <div class="card panel-card">
+          <div class="field-row">
+            <div class="field">
+              <label>Dataset</label>
+              <select id="searchTableSelect"><option value="">Select a dataset…</option></select>
+            </div>
+            <div class="field" style="flex:2;">
+              <label>Search query</label>
+              <input type="text" id="searchQueryInput" placeholder="Ask in plain English…" />
+            </div>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-dark btn-sm" id="searchRunBtn">Search</button>
+          </div>
+          <div id="searchResultArea"></div>
+        </div>
+      </section>
+
+      <!-- ===================== REPORTS ===================== -->
+      <section class="view" id="view-reports">
+        <div class="page-head"><h1>Reports</h1><p>AI-generated summaries from the report agent.</p></div>
+        <div class="card panel-card">
+          <div class="field-row">
+            <div class="field">
+              <label>Dataset</label>
+              <select id="reportTableSelect"><option value="">Select a dataset…</option></select>
+            </div>
+            <div class="field" style="flex:2;">
+              <label>Question</label>
+              <input type="text" id="reportQuestionInput" placeholder="e.g. Which category has the highest average revenue?" />
+            </div>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-dark btn-sm" id="reportGenerateBtn">Generate report</button>
+          </div>
+          <div id="reportResultArea"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Recent reports</h3></div>
+          <div id="reportHistoryArea" style="padding:6px 18px 14px;"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="page-head"><h1>Settings</h1><p>Account and workspace preferences.</p></div>
+
+        <div class="card" style="padding:22px; margin-bottom:16px;">
+          <h3 style="margin:0 0 16px;">Account</h3>
+          <div style="display:grid; grid-template-columns:120px 1fr; gap:12px; font-size:14px;">
+            <div class="tmuted">Name</div><div id="settingsUserName">—</div>
+            <div class="tmuted">Email</div><div id="settingsUserEmail">—</div>
+          </div>
+          <button class="btn btn-outline" id="settingsLogoutBtn" style="margin-top:18px;">Log out</button>
+        </div>
+
+        <div class="card" style="padding:22px; margin-bottom:16px;">
+          <h3 style="margin:0 0 16px;">Workspace</h3>
+          <div style="display:grid; grid-template-columns:120px 1fr; gap:12px; font-size:14px;">
+            <div class="tmuted">Datasets</div><div id="settingsDatasetCount">—</div>
+            <div class="tmuted">Total records</div><div id="settingsRecordCount">—</div>
+            <div class="tmuted">Backend</div><div id="settingsBackendUrl">—</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:22px; margin-bottom:16px;">
+          <h3 style="margin:0 0 8px;">Connections</h3>
+          <p class="tmuted" style="font-size:13px; margin:0;">The Groq API key used for Reports and AI summaries is configured server-side in the backend's <code>.env</code> file, not from this page — there's currently no in-app way to edit it.</p>
+        </div>
+
+        <div class="card" style="padding:22px; border-color: var(--red-dim);">
+          <h3 style="margin:0 0 8px; color: var(--red);">Danger zone</h3>
+          <p class="tmuted" style="font-size:13px; margin:0 0 14px;">Permanently deletes every dataset you've uploaded — Bronze, Silver, Gold, and any related reports. This cannot be undone.</p>
+          <button class="btn btn-danger-solid" id="settingsDeleteAllBtn">Delete all my datasets</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ============================================================
+     FRONT END ONLY — running on mock local state for now.
+     When wiring to the real backend:
+       - GET  {API_BASE}/auth/me            -> populate userName/userEmail
+       - POST {API_BASE}/upload/bulk        -> multipart file list, auth'd
+     Replace mockUploadBulk() below with a real fetch() call, and
+     replace the mock user in loadUser() with a call to /auth/me.
+  ============================================================ */
+  var API_BASE = 'http://localhost:8000'; // FastAPI backend (uvicorn main:app --reload)
+  var accessToken = localStorage.getItem('access_token');
+
+  if (!accessToken){
+    window.location.href = 'login.html';
+    return;
+  }
+
+  function authHeaders(){
+    return { Authorization: 'Bearer ' + accessToken };
+  }
+
+  /* ---- sidebar nav / view switching ---- */
+  var navItems = document.querySelectorAll('.dsitem[data-view]');
+  var views = document.querySelectorAll('.view');
+  var topbarTitle = document.getElementById('topbarTitle');
+  var titles = {
+    overview:'Overview', datasets:'Datasets', upload:'Upload data', pipeline:'Pipeline',
+    sql:'SQL Explorer', semantic:'Semantic Search', reports:'Reports', settings:'Settings'
+  };
+
+  function goto(viewName){
+    navItems.forEach(function(i){ i.classList.toggle('active', i.dataset.view === viewName); });
+    views.forEach(function(v){ v.classList.toggle('active', v.id === 'view-' + viewName); });
+    topbarTitle.textContent = titles[viewName] || 'Overview';
+    document.getElementById('sidebar').classList.remove('open');
+    if (viewName === 'overview' || viewName === 'datasets') loadDatasets();
+    if (viewName === 'settings') populateSettings();
+    if (viewName === 'pipeline') loadPipelineStatus();
+    if (viewName === 'reports') loadReportHistory();
+  }
+
+  navItems.forEach(function(item){
+    item.addEventListener('click', function(){ goto(item.dataset.view); });
+  });
+  document.querySelectorAll('[data-goto]').forEach(function(el){
+    el.addEventListener('click', function(){ goto(el.dataset.goto); });
+  });
+  document.getElementById('quickUploadBtn').addEventListener('click', function(){ goto('upload'); });
+
+  document.getElementById('navToggleMobile').addEventListener('click', function(){
+    document.getElementById('sidebar').classList.toggle('open');
+  });
+
+  /* ---- user info: GET /auth/me ---- */
+  function loadUser(){
+    fetch(API_BASE + '/auth/me', { headers: authHeaders() })
+      .then(function(res){
+        if (res.status === 401){ logout(); throw 'unauthorized'; }
+        if (!res.ok) throw new Error('Failed to load user');
+        return res.json(); // { id, username, email, created_at }
+      })
+      .then(function(user){
+        document.getElementById('userAvatar').textContent = user.username.charAt(0).toUpperCase();
+        document.getElementById('userName').textContent = user.username;
+        document.getElementById('userEmail').textContent = user.email;
+      })
+      .catch(function(err){
+        if (err === 'unauthorized') return;
+        // Backend unreachable — fall back to the cached username so the shell still renders.
+        var cached = localStorage.getItem('username') || 'user';
+        document.getElementById('userAvatar').textContent = cached.charAt(0).toUpperCase();
+        document.getElementById('userName').textContent = cached;
+        document.getElementById('userEmail').textContent = 'Backend unreachable at ' + API_BASE;
+      });
+  }
+  loadUser();
+
+  function logout(){
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('username');
+    window.location.href = 'login.html';
+  }
+  document.getElementById('logoutBtn').addEventListener('click', logout);
+
+  /* ============================================================
+     DATASET STATE — loaded from GET /datasets (backed by the
+     pipeline registry: Bronze/Silver/Gold/Vector status per file).
+  ============================================================ */
+  var datasets = [];
+
+  function fileIconSvg(){
+    return '<svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+  }
+
+  function chipForStatus(status){
+    if (status === 'ready') return '<span class="chip chip-green"><span class="d"></span>Ready</span>';
+    if (status === 'processing') return '<span class="chip chip-amber"><span class="d"></span>Processing</span>';
+    if (status === 'failed') return '<span class="chip chip-red"><span class="d"></span>Failed</span>';
+    return '<span class="chip chip-blue"><span class="d"></span>Uploaded</span>';
+  }
+
+  function renderTable(tableEl, subEl, limit){
+    var rows = limit ? datasets.slice(0, limit) : datasets;
+    var rowsHtml = rows.map(function(d){
+      return '<div class="trow">' +
+        '<div class="tname">' + fileIconSvg() + '<span>' + d.name + '</span></div>' +
+        '<div class="tmuted">' + (d.rows != null ? d.rows.toLocaleString() : '—') + '</div>' +
+        '<div class="tmuted">' + (d.category || '—') + '</div>' +
+        '<div>' + chipForStatus(d.status) + '</div>' +
+        '<div class="trow-actions"><button class="btn btn-ghost btn-sm" data-view-table="' + d.table_name + '">View</button><button class="btn btn-ghost btn-sm btn-danger" data-delete-table="' + d.table_name + '" data-delete-name="' + d.name + '">Delete</button></div>' +
+      '</div>';
+    }).join('');
+
+    var emptyHtml = '<div class="empty-row">' +
+      '<svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>' +
+      'No datasets uploaded yet.' +
+    '</div>';
+
+    tableEl.querySelectorAll('.trow:not(.thead)').forEach(function(r){ r.remove(); });
+    tableEl.insertAdjacentHTML('beforeend', rows.length ? rowsHtml : emptyHtml);
+    tableEl.querySelectorAll('[data-view-table]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        goto('sql');
+        document.getElementById('sqlTableSelect').value = btn.dataset.viewTable;
+      });
+    });
+    tableEl.querySelectorAll('[data-delete-table]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var tableName = btn.dataset.deleteTable;
+        var displayName = btn.dataset.deleteName;
+        if (!confirm('Delete "' + displayName + '"? This removes it from Bronze, Silver, and Gold, and cannot be undone.')) return;
+        btn.disabled = true;
+        btn.textContent = 'Deleting…';
+        fetch(API_BASE + '/datasets/' + encodeURIComponent(tableName), {
+          method: 'DELETE',
+          headers: authHeaders()
+        })
+          .then(function(res){
+            if (!res.ok) throw new Error('Delete failed (' + res.status + ')');
+            loadDatasets();
+          })
+          .catch(function(err){
+            alert('Could not delete dataset: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Delete';
+          });
+      });
+    });
+    if (subEl) subEl.textContent = datasets.length ? datasets.length + ' total' : 'No datasets yet';
+  }
+
+  function renderStats(){
+    var totalRows = datasets.reduce(function(sum, d){ return sum + (d.rows || 0); }, 0);
+    document.getElementById('statRecords').textContent = totalRows.toLocaleString();
+    document.getElementById('statDatasets').textContent = datasets.length;
+    document.getElementById('statStorage').textContent = (datasets.length * 3.2).toFixed(1) + ' MB';
+    document.getElementById('statQueries').textContent = '0';
+  }
+
+  function fillSelect(selectEl, list, placeholder){
+    if (!selectEl) return;
+    var current = selectEl.value;
+    selectEl.innerHTML = '<option value="">' + placeholder + '</option>' +
+      list.map(function(d){ return '<option value="' + d.table_name + '">' + d.name + '</option>'; }).join('');
+    if (list.some(function(d){ return d.table_name === current; })) selectEl.value = current;
+  }
+
+  function populateDatasetSelects(){
+    var goldReady = datasets.filter(function(d){ return d.gold_status === 'ready'; });
+    var searchable = datasets.filter(function(d){ return d.vector_status === 'ready'; });
+    fillSelect(document.getElementById('sqlTableSelect'), goldReady, 'Select a dataset…');
+    fillSelect(document.getElementById('reportTableSelect'), goldReady, 'Select a dataset…');
+    fillSelect(document.getElementById('searchTableSelect'), searchable, 'Select a dataset…');
+
+    var breakdownSelect = document.getElementById('overviewBreakdownSelect');
+    if (breakdownSelect) {
+      var hadValue = breakdownSelect.value;
+      fillSelect(breakdownSelect, goldReady, 'Select a dataset…');
+      if (!breakdownSelect.value && goldReady.length) breakdownSelect.value = goldReady[0].table_name;
+      if (breakdownSelect.value && breakdownSelect.value !== hadValue) loadOverviewCharts(breakdownSelect.value);
+      else if (!goldReady.length) loadOverviewCharts(null);
+    }
+  }
+
+  function refreshAll(){
+    renderTable(document.getElementById('overviewTable'), document.getElementById('overviewTableSub'), 6);
+    renderTable(document.getElementById('datasetsTable'), null, null);
+    renderStats();
+    populateDatasetSelects();
+  }
+
+  function loadDatasets(){
+    return fetch(API_BASE + '/datasets', { headers: authHeaders() })
+      .then(function(res){
+        if (res.status === 401){ logout(); throw 'unauthorized'; }
+        if (!res.ok) throw new Error('Failed to load datasets');
+        return res.json(); // { datasets: [...] }
+      })
+      .then(function(data){
+        datasets = (data.datasets || []).map(function(d){
+          return {
+            table_name: d.table_name,
+            name: d.original_name,
+            rows: d.record_count,
+            category: d.category,
+            status: d.status,
+            gold_status: d.gold_status,
+            vector_status: d.vector_status,
+          };
+        });
+        refreshAll();
+      })
+      .catch(function(err){
+        if (err === 'unauthorized') return;
+        // Backend unreachable — leave datasets empty; tables fall back to the empty state.
+        refreshAll();
+      });
+  }
+  loadDatasets();
+
+  /* ============================================================
+     SETTINGS
+  ============================================================ */
+  function populateSettings(){
+    var nameEl = document.getElementById('userName');
+    var emailEl = document.getElementById('userEmail');
+    document.getElementById('settingsUserName').textContent = nameEl ? nameEl.textContent : '—';
+    document.getElementById('settingsUserEmail').textContent = emailEl ? emailEl.textContent : '—';
+    document.getElementById('settingsDatasetCount').textContent = datasets.length;
+    document.getElementById('settingsRecordCount').textContent =
+      datasets.reduce(function(sum, d){ return sum + (d.rows || 0); }, 0).toLocaleString();
+    document.getElementById('settingsBackendUrl').textContent = API_BASE;
+  }
+
+  var settingsLogoutBtn = document.getElementById('settingsLogoutBtn');
+  if (settingsLogoutBtn) settingsLogoutBtn.addEventListener('click', logout);
+
+  var settingsDeleteAllBtn = document.getElementById('settingsDeleteAllBtn');
+  if (settingsDeleteAllBtn) {
+    settingsDeleteAllBtn.addEventListener('click', function(){
+      if (!datasets.length) { alert('No datasets to delete.'); return; }
+      if (!confirm('Delete all ' + datasets.length + ' dataset(s)? This cannot be undone.')) return;
+      settingsDeleteAllBtn.disabled = true;
+      settingsDeleteAllBtn.textContent = 'Deleting…';
+      var deletions = datasets.map(function(d){
+        return fetch(API_BASE + '/datasets/' + encodeURIComponent(d.table_name), {
+          method: 'DELETE',
+          headers: authHeaders()
+        });
+      });
+      Promise.all(deletions)
+        .then(function(){
+          loadDatasets();
+          settingsDeleteAllBtn.disabled = false;
+          settingsDeleteAllBtn.textContent = 'Delete all my datasets';
+          populateSettings();
+        })
+        .catch(function(err){
+          alert('Some deletions may have failed: ' + err.message);
+          settingsDeleteAllBtn.disabled = false;
+          settingsDeleteAllBtn.textContent = 'Delete all my datasets';
+        });
+    });
+  }
+
+  /* ============================================================
+     OVERVIEW — dataset breakdown charts
+     Reuses the existing /sql/tables (for column names) and
+     /sql/query (group_by + agg) endpoints that already power SQL
+     Explorer — no new backend endpoint needed.
+     ============================================================ */
+  var overviewCategoryChartInstance = null;
+  var overviewPriceChartInstance = null;
+  var CATEGORY_COLUMN_CANDIDATES = ['category', 'sub_category', 'brand', 'seller'];
+  var PRICE_COLUMN_CANDIDATES = ['selling_price', 'actual_price', 'price', 'amount'];
+
+  document.getElementById('overviewBreakdownSelect').addEventListener('change', function(e){
+    loadOverviewCharts(e.target.value || null);
+  });
+
+  function getTableColumns(tableName){
+    return fetch(API_BASE + '/sql/tables', { headers: authHeaders() })
+      .then(function(res){ return res.json(); })
+      .then(function(data){
+        var entry = (data.tables || []).find(function(t){ return t.table_name === tableName; });
+        return entry ? entry.columns : [];
+      });
+  }
+
+  function loadOverviewCharts(tableName){
+    var msgEl = document.getElementById('overviewChartsMsg');
+    var gridEl = document.getElementById('overviewChartsGrid');
+
+    if (!tableName) {
+      if (overviewCategoryChartInstance) { overviewCategoryChartInstance.destroy(); overviewCategoryChartInstance = null; }
+      if (overviewPriceChartInstance) { overviewPriceChartInstance.destroy(); overviewPriceChartInstance = null; }
+      gridEl.style.display = 'none';
+      msgEl.style.display = 'block';
+      msgEl.textContent = 'No ready dataset to chart yet.';
+      return;
+    }
+
+    getTableColumns(tableName).then(function(columns){
+      var categoryCol = CATEGORY_COLUMN_CANDIDATES.find(function(c){ return columns.indexOf(c) !== -1; });
+      var priceCol = PRICE_COLUMN_CANDIDATES.find(function(c){ return columns.indexOf(c) !== -1; });
+
+      if (!categoryCol) {
+        gridEl.style.display = 'none';
+        msgEl.style.display = 'block';
+        msgEl.textContent = 'This dataset has no category-like column (checked: ' + CATEGORY_COLUMN_CANDIDATES.join(', ') + ') to break down by.';
+        return;
+      }
+
+      msgEl.style.display = 'none';
+      gridEl.style.display = 'grid';
+
+      // Chart 1: record count per category value. Deliberately counts a
+      // DIFFERENT column than categoryCol, not categoryCol itself.
+      // Grouping and counting the same column name causes pandas'
+      // .agg({col: 'count'}) to collapse the group-key column and the
+      // count-output column into a single column (same name), silently
+      // overwriting every category's name with its own count -- not an
+      // error, just quietly wrong data (e.g. "Clothing" becomes "28971").
+      // Any other present column works fine as the count target.
+      var countTargetCol = columns.find(function(c){ return c !== categoryCol; }) || categoryCol;
+      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: countTargetCol, agg_func: 'count', limit: 15 })
+        .then(function(res){ renderOverviewBarChart('overviewCategoryChart', res, categoryCol, countTargetCol, 'Records'); })
+        .catch(function(err){ console.error('Overview category chart failed:', err); });
+
+      // Chart 2: average price per category value (only if a price-like column exists)
+      var priceCanvas = document.getElementById('overviewPriceChart').closest('div');
+      if (!priceCol) {
+        priceCanvas.querySelector('.sub').textContent = 'Avg. price by category (unavailable)';
+        if (overviewPriceChartInstance) { overviewPriceChartInstance.destroy(); overviewPriceChartInstance = null; }
+        return;
+      }
+      priceCanvas.querySelector('.sub').textContent = 'Avg. ' + priceCol + ' by ' + categoryCol;
+      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: priceCol, agg_func: 'mean', limit: 15 })
+        .then(function(res){ renderOverviewBarChart('overviewPriceChart', res, categoryCol, priceCol, 'Avg. ' + priceCol); })
+        .catch(function(err){ console.error('Overview price chart failed:', err); });
+    });
+  }
+
+  function renderOverviewBarChart(canvasId, queryResult, groupCol, valueCol, label){
+    var rows = queryResult.rows || [];
+    var labels = rows.map(function(r){ return String(r[groupCol]); });
+    var values = rows.map(function(r){ return r[valueCol]; });
+    var ctx = document.getElementById(canvasId).getContext('2d');
+
+    var existing = canvasId === 'overviewCategoryChart' ? overviewCategoryChartInstance : overviewPriceChartInstance;
+    if (existing) existing.destroy();
+
+    var chart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: labels, datasets: [{ label: label, data: values, backgroundColor: '#6366f1' }] },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } } }
+      }
+    });
+
+    if (canvasId === 'overviewCategoryChart') overviewCategoryChartInstance = chart;
+    else overviewPriceChartInstance = chart;
+  }
+
+  /* ============================================================
+     UPLOAD FLOW
+  ============================================================ */
+  var dropzone = document.getElementById('dropzone');
+  var fileInput = document.getElementById('fileInput');
+  var browseBtn = document.getElementById('browseBtn');
+  var queueEl = document.getElementById('queue');
+  var uploadFooter = document.getElementById('uploadFooter');
+  var queueCount = document.getElementById('queueCount');
+  var uploadBtn = document.getElementById('uploadBtn');
+  var clearQueueBtn = document.getElementById('clearQueueBtn');
+
+  var queuedFiles = []; // { file, id, status }
+
+  function formatBytes(bytes){
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/(1024*1024)).toFixed(1) + ' MB';
+  }
+
+  function extIcon(){
+    return '<svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+  }
+
+  function renderQueue(){
+    queueEl.innerHTML = queuedFiles.map(function(qf){
+      return '<div class="queue-item" data-id="' + qf.id + '">' +
+        '<div class="qicon">' + extIcon() + '</div>' +
+        '<div class="qmeta">' +
+          '<div class="qname">' + qf.file.name + '</div>' +
+          '<div class="qsize">' + formatBytes(qf.file.size) + '</div>' +
+          (qf.status === 'uploading' ? '<div class="progress-bar"><div class="fill" style="width:' + qf.progress + '%"></div></div>' : '') +
+        '</div>' +
+        '<div class="qstatus">' + chipForStatus(qf.status === 'uploading' ? 'processing' : qf.status) + '</div>' +
+        (qf.status === 'queued' ? '<button class="qremove" data-remove="' + qf.id + '"><svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' : '<span style="width:26px;"></span>') +
+      '</div>';
+    }).join('');
+
+    queueEl.querySelectorAll('[data-remove]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        queuedFiles = queuedFiles.filter(function(qf){ return qf.id !== btn.dataset.remove; });
+        renderQueue();
+        updateFooter();
+      });
+    });
+
+    uploadFooter.style.display = queuedFiles.length ? 'flex' : 'none';
+  }
+
+  function updateFooter(){
+    queueCount.textContent = queuedFiles.length + ' file' + (queuedFiles.length === 1 ? '' : 's') + ' selected';
+    uploadFooter.style.display = queuedFiles.length ? 'flex' : 'none';
+  }
+
+  function addFiles(fileList){
+    Array.from(fileList).forEach(function(file){
+      queuedFiles.push({ file: file, id: 'f' + Date.now() + Math.random().toString(16).slice(2), status: 'queued', progress: 0 });
+    });
+    renderQueue();
+    updateFooter();
+  }
+
+  browseBtn.addEventListener('click', function(e){ e.stopPropagation(); fileInput.click(); });
+  dropzone.addEventListener('click', function(){ fileInput.click(); });
+  fileInput.addEventListener('change', function(){ addFiles(fileInput.files); fileInput.value = ''; });
+
+  ['dragenter','dragover'].forEach(function(evt){
+    dropzone.addEventListener(evt, function(e){ e.preventDefault(); dropzone.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    dropzone.addEventListener(evt, function(e){ e.preventDefault(); dropzone.classList.remove('dragover'); });
+  });
+  dropzone.addEventListener('drop', function(e){
+    if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
+  });
+
+  clearQueueBtn.addEventListener('click', function(){
+    queuedFiles = [];
+    renderQueue();
+    updateFooter();
+  });
+
+  /* ---- real bulk upload: POST {API_BASE}/upload/bulk ---- */
+  function uploadBulk(files){
+    var form = new FormData();
+    files.forEach(function(f){ form.append('files', f); });
+
+    return fetch(API_BASE + '/upload/bulk', {
+      method: 'POST',
+      headers: authHeaders(), // don't set Content-Type manually — the browser sets the multipart boundary
+      body: form
+    }).then(function(res){
+      if (res.status === 401){ logout(); throw 'unauthorized'; }
+      if (!res.ok){
+        return res.json().catch(function(){ return null; }).then(function(body){
+          throw (body && body.detail) ? body.detail : 'Upload failed.';
+        });
+      }
+      return res.json(); // { uploaded_by, files_ingested, results: [...] }
+    }).catch(function(err){
+      if (err === 'unauthorized') throw err;
+      if (typeof err === 'string') throw err;
+      throw 'Could not reach the backend at ' + API_BASE + '. Is uvicorn running?';
+    });
+  }
+
+  uploadBtn.addEventListener('click', function(){
+    if (!queuedFiles.length) return;
+    uploadBtn.classList.add('loading');
+    uploadBtn.disabled = true;
+
+    queuedFiles.forEach(function(qf){ qf.status = 'uploading'; qf.progress = 15; });
+    renderQueue();
+
+    var progressTimer = setInterval(function(){
+      queuedFiles.forEach(function(qf){
+        if (qf.status === 'uploading' && qf.progress < 90) qf.progress += Math.random()*20;
+      });
+      renderQueue();
+    }, 300);
+
+    uploadBulk(queuedFiles.map(function(qf){ return qf.file; }))
+      .then(function(res){
+        clearInterval(progressTimer);
+        queuedFiles = [];
+        renderQueue();
+        updateFooter();
+        loadDatasets();
+      })
+      .catch(function(err){
+        clearInterval(progressTimer);
+        if (err === 'unauthorized') return;
+        queuedFiles.forEach(function(qf){ qf.status = 'failed'; });
+        renderQueue();
+        alert(typeof err === 'string' ? err : 'Upload failed.');
+      })
+      .finally(function(){
+        uploadBtn.classList.remove('loading');
+        uploadBtn.disabled = false;
+      });
+  });
+
+  /* ============================================================
+     SHARED HELPERS
+  ============================================================ */
+  function escapeHtml(v){
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function resultTableHtml(columns, rows, totalCount, truncated){
+    if (!rows || !rows.length) return '<div class="inline-msg">No rows returned.</div>';
+    var cols = columns && columns.length ? columns : Object.keys(rows[0]);
+    var thead = '<tr>' + cols.map(function(c){ return '<th>' + escapeHtml(c) + '</th>'; }).join('') + '</tr>';
+    var tbody = rows.map(function(r){
+      return '<tr>' + cols.map(function(c){ return '<td>' + escapeHtml(r[c]) + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    var count = totalCount != null ? totalCount : rows.length;
+    var meta = '<div class="result-meta">' + count.toLocaleString() + ' row' + (count === 1 ? '' : 's') +
+      (truncated ? ' (showing first ' + rows.length + ')' : '') + '</div>';
+    return meta + '<div class="result-scroll"><table class="result-table"><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table></div>';
+  }
+
+  function postJson(path, body){
+    return fetch(API_BASE + path, {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify(body)
+    }).then(function(res){
+      if (res.status === 401){ logout(); throw 'unauthorized'; }
+      return res.json().catch(function(){ return null; }).then(function(data){
+        if (!res.ok) throw (data && data.detail) ? data.detail : 'Request failed.';
+        return data;
+      });
+    });
+  }
+
+  /* ============================================================
+     PIPELINE MONITOR — GET /pipeline/status
+  ============================================================ */
+  function stageChip(status){
+    if (status === 'ready') return '<span class="chip chip-green"><span class="d"></span>Ready</span>';
+    if (status === 'running') return '<span class="chip chip-amber"><span class="d"></span>Running</span>';
+    if (status === 'failed') return '<span class="chip chip-red"><span class="d"></span>Failed</span>';
+    if (status === 'skipped') return '<span class="chip chip-blue"><span class="d"></span>Skipped</span>';
+    return '<span class="chip chip-blue"><span class="d"></span>Pending</span>';
+  }
+
+  function loadPipelineStatus(){
+    fetch(API_BASE + '/pipeline/status', { headers: authHeaders() })
+      .then(function(res){
+        if (res.status === 401){ logout(); throw 'unauthorized'; }
+        if (!res.ok) throw new Error('Failed to load pipeline status');
+        return res.json();
+      })
+      .then(function(data){
+        var tableEl = document.getElementById('pipelineTable');
+        var rows = data.datasets || [];
+        tableEl.querySelectorAll('.stage-row:not(.thead)').forEach(function(r){ r.remove(); });
+        document.getElementById('pipelineEmpty').style.display = rows.length ? 'none' : 'block';
+        var html = rows.map(function(d){
+          return '<div class="stage-row">' +
+            '<div class="tname">' + fileIconSvg() + '<span>' + escapeHtml(d.original_name) + '</span></div>' +
+            '<div>' + stageChip(d.stages.bronze) + '</div>' +
+            '<div>' + stageChip(d.stages.silver) + '</div>' +
+            '<div>' + stageChip(d.stages.gold) + '</div>' +
+            '<div>' + stageChip(d.stages.vector) + '</div>' +
+          '</div>';
+        }).join('');
+        tableEl.insertAdjacentHTML('beforeend', html);
+      })
+      .catch(function(err){ if (err !== 'unauthorized') console.error(err); });
+  }
+  document.getElementById('pipelineRefreshBtn').addEventListener('click', loadPipelineStatus);
+
+  /* ============================================================
+     SQL EXPLORER — POST /sql/query
+  ============================================================ */
+  document.getElementById('sqlRunBtn').addEventListener('click', function(){
+    var area = document.getElementById('sqlResultArea');
+    var table = document.getElementById('sqlTableSelect').value;
+    if (!table){ area.innerHTML = '<div class="inline-msg error">Pick a dataset first.</div>'; return; }
+
+    var groupByRaw = document.getElementById('sqlGroupByInput').value.trim();
+    var body = {
+      table_name: table,
+      query: document.getElementById('sqlQueryInput').value.trim() || null,
+      group_by: groupByRaw ? groupByRaw.split(',').map(function(s){ return s.trim(); }).filter(Boolean) : null,
+      agg_column: document.getElementById('sqlAggColInput').value.trim() || null,
+      agg_func: document.getElementById('sqlAggFuncInput').value || null,
+      limit: 200
+    };
+
+    area.innerHTML = '<div class="inline-msg">Running query…</div>';
+    postJson('/sql/query', body)
+      .then(function(data){ area.innerHTML = resultTableHtml(data.columns, data.rows, data.row_count, data.truncated); })
+      .catch(function(err){
+        if (err === 'unauthorized') return;
+        area.innerHTML = '<div class="inline-msg error">' + escapeHtml(typeof err === 'string' ? err : 'Query failed.') + '</div>';
+      });
+  });
+
+  /* ============================================================
+     SEMANTIC SEARCH — POST /search/query
+  ============================================================ */
+  document.getElementById('searchRunBtn').addEventListener('click', function(){
+    var area = document.getElementById('searchResultArea');
+    var table = document.getElementById('searchTableSelect').value;
+    var q = document.getElementById('searchQueryInput').value.trim();
+    if (!table){ area.innerHTML = '<div class="inline-msg error">Pick a dataset first.</div>'; return; }
+    if (!q){ area.innerHTML = '<div class="inline-msg error">Type something to search for.</div>'; return; }
+
+    area.innerHTML = '<div class="inline-msg">Searching…</div>';
+    postJson('/search/query', { table_name: table, query: q, top_k: 10 })
+      .then(function(data){ area.innerHTML = resultTableHtml(data.columns, data.rows, data.rows.length, false); })
+      .catch(function(err){
+        if (err === 'unauthorized') return;
+        area.innerHTML = '<div class="inline-msg error">' + escapeHtml(typeof err === 'string' ? err : 'Search failed.') + '</div>';
+      });
+  });
+
+  /* ============================================================
+     REPORTS — POST /reports/generate, GET /reports
+  ============================================================ */
+  document.getElementById('reportGenerateBtn').addEventListener('click', function(){
+    var area = document.getElementById('reportResultArea');
+    var table = document.getElementById('reportTableSelect').value;
+    var question = document.getElementById('reportQuestionInput').value.trim();
+    if (!table){ area.innerHTML = '<div class="inline-msg error">Pick a dataset first.</div>'; return; }
+    if (!question){ area.innerHTML = '<div class="inline-msg error">Type a question first.</div>'; return; }
+
+    area.innerHTML = '<div class="inline-msg">Generating report…</div>';
+    postJson('/reports/generate', { table_name: table, question: question })
+      .then(function(data){
+        area.innerHTML =
+          '<div class="report-item"><div class="rq">' + escapeHtml(question) + '</div>' +
+          '<div class="rs">' + escapeHtml(data.summary) + '</div></div>' +
+          resultTableHtml(data.columns, data.rows, data.rows.length, false);
+        loadReportHistory();
+      })
+      .catch(function(err){
+        if (err === 'unauthorized') return;
+        area.innerHTML = '<div class="inline-msg error">' + escapeHtml(typeof err === 'string' ? err : 'Report generation failed.') + '</div>';
+      });
+  });
+
+  function loadReportHistory(){
+    var area = document.getElementById('reportHistoryArea');
+    fetch(API_BASE + '/reports', { headers: authHeaders() })
+      .then(function(res){
+        if (res.status === 401){ logout(); throw 'unauthorized'; }
+        if (!res.ok) throw new Error('Failed to load reports');
+        return res.json();
+      })
+      .then(function(data){
+        var reports = data.reports || [];
+        if (!reports.length){ area.innerHTML = '<div class="inline-msg">No reports generated yet.</div>'; return; }
+        area.innerHTML = reports.map(function(r){
+          return '<div class="report-item">' +
+            '<div class="rq">' + escapeHtml(r.question) + '</div>' +
+            '<div class="rs">' + escapeHtml(r.summary) + '</div>' +
+            '<div class="rmeta">' + escapeHtml(r.original_name || r.table_name) + ' · ' + new Date(r.created_at).toLocaleString() + '</div>' +
+          '</div>';
+        }).join('');
+      })
+      .catch(function(err){
+        if (err === 'unauthorized') return;
+        area.innerHTML = '<div class="inline-msg error">Could not load report history.</div>';
+      });
+  }
+
+})();
+</script>
+
+</body>
+</html>
