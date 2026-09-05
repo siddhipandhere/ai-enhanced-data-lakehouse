@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth.dependencies import get_current_user
 from auth.models import User
-from medallion.gold import COMBINED_TABLE_SENTINEL, combined_text_column, find_combinable_datasets, resolve_dataset
+from medallion.gold import (
+    COMBINED_TABLE_SENTINEL,
+    combined_text_column,
+    describe_combine_status,
+    find_combinable_datasets,
+    resolve_dataset,
+)
 from pipeline import registry
 from sql import query_engine
 
@@ -74,17 +80,41 @@ def list_datasets(current_user: User = Depends(get_current_user)):
     return {"datasets": summaries}
 
 
+@router.get("/combine-status")
+def combine_status(current_user: User = Depends(get_current_user)):
+    """Tells the frontend whether 'All datasets (combined)' is available
+    right now and, if not, why — see describe_combine_status()."""
+    return describe_combine_status(current_user.username)
+
+
+@router.get("/stats")
+def dataset_stats(current_user: User = Depends(get_current_user)):
+    """
+    Real Overview-page KPIs: actual on-disk bytes across this user's
+    Bronze/Silver/Gold/vector-store files, and the real count of Report
+    / SQL Explorer / Semantic Search queries they've run — replacing the
+    frontend's old ``datasets.length * 3.2`` storage guess and the
+    permanently-'0' query counter.
+    """
+    return {
+        "storage_bytes": registry.storage_used_bytes(current_user.username),
+        "ai_queries": registry.get_query_count(current_user.username),
+    }
+
+
 @router.get("/{table_name}/preview")
 def preview_dataset(table_name: str, limit: int = 20, current_user: User = Depends(get_current_user)):
     if table_name == COMBINED_TABLE_SENTINEL:
         if not find_combinable_datasets(current_user.username):
-            raise HTTPException(status_code=404, detail="No datasets are currently eligible to combine")
+            raise HTTPException(
+                status_code=404, detail="No datasets are currently eligible to combine")
     else:
         entry = registry.get_dataset(table_name)
         if not entry or entry.get("uploaded_by") != current_user.username:
             raise HTTPException(status_code=404, detail="Dataset not found")
         if entry.get("gold_status") != "ready":
-            raise HTTPException(status_code=409, detail=f"Dataset not ready yet (gold_status={entry.get('gold_status')})")
+            raise HTTPException(
+                status_code=409, detail=f"Dataset not ready yet (gold_status={entry.get('gold_status')})")
 
     df = resolve_dataset(table_name, current_user.username)
     preview = df.head(max(1, min(limit, 200)))

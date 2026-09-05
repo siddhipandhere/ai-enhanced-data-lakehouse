@@ -50,8 +50,43 @@ def _ensure_id_column(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+_MEANINGFUL_TEXT_LEN = 20  # below this, a string column reads as a short
+# label/code/badge, not free-form prose worth
+# semantically searching over
+
+
 def _pick_text_column(df: pd.DataFrame) -> str | None:
+    """
+    Picks the column to embed for semantic search.
+
+    This used to rank primarily by column NAME (does it contain "text",
+    "description", "title", ...?) with actual content length only as a
+    tie-breaker. That trusts the source data's column names to be
+    accurate -- which a real-world export can't be relied on for. A
+    real Flipkart export processed through this app had its "discount"
+    and "description" columns swapped: "description" held short values
+    like "69% off" (a discount badge) while "discount" held the actual
+    long-form product description. Name-first ranking picked
+    "description" every time purely because of its name, and the
+    resulting semantic search embedded thousands of near-duplicate
+    "NN% off" strings instead of real product text -- technically
+    "working" (no error, an index got built) but semantically useless,
+    with every result an near-arbitrary tie at a very low similarity
+    score.
+
+    Ranking the qualifying (long-enough) columns by actual sampled
+    length FIRST, with the column-name keywords only as a tie-breaker,
+    means a mislabeled column can't win just because of its name -- the
+    real prose wins because it *is* long, regardless of what its column
+    happens to be called. A column of serialized structure (a list of
+    image URLs, a list of {"key": "value"} spec dicts, a single bare
+    URL) can also be "long" without being prose at all, so those are
+    filtered out by shape before length is even considered -- otherwise
+    "longest average string" would just as happily pick a JSON blob as
+    a real description.
+    """
     candidates = []
+    fallback_candidates = []
     for c in df.columns:
         if c == config.JOIN_KEY:
             continue
@@ -65,23 +100,42 @@ def _pick_text_column(df: pd.DataFrame) -> str | None:
         # of whether it actually had good free-text content.
         if not pd.api.types.is_string_dtype(df[c]):
             continue
-        sample = df[c].dropna().head(5).tolist()
+        sample = df[c].dropna().head(30).tolist()
         if not sample or not all(isinstance(v, str) for v in sample):
             continue  # skip binary/bytes columns (e.g. image content)
+        # Structured/serialized values -- a Python-repr list or dict, or
+        # a bare URL -- read as long "text" by character count but carry
+        # no natural-language meaning to embed. A real Flipkart export's
+        # "images" (list of URLs) and "product_details" (list of spec
+        # dicts) columns both look like this.
+        structured = sum(1 for v in sample if v.strip()[:1] in (
+            "[", "{") or v.strip().lower().startswith(("http://", "https://")))
+        if structured / len(sample) > 0.5:
+            continue
         avg_len = sum(len(v) for v in sample) / len(sample)
         if avg_len < 3:
             continue
-        priority = next((i for i, kw in enumerate(_TEXT_COLUMN_KEYWORDS) if kw in c.lower()), len(_TEXT_COLUMN_KEYWORDS))
-        candidates.append((priority, -avg_len, c))
+        priority = next((i for i, kw in enumerate(
+            _TEXT_COLUMN_KEYWORDS) if kw in c.lower()), len(_TEXT_COLUMN_KEYWORDS))
+        fallback_candidates.append((priority, -avg_len, c))
+        if avg_len >= _MEANINGFUL_TEXT_LEN:
+            candidates.append((-avg_len, priority, c))
 
-    if not candidates:
-        return None
-    candidates.sort()
-    return candidates[0][2]
+    # Prefer genuine long-form text (ranked by how much of it there
+    # actually is); only fall back to ranking short columns by name
+    # (the original behavior) if nothing in the dataset clears the
+    # length bar at all.
+    if candidates:
+        candidates.sort()
+        return candidates[0][2]
+    if fallback_candidates:
+        fallback_candidates.sort()
+        return fallback_candidates[0][2]
+    return None
 
 
 def process_dataset(bronze_table: str, bronze_path: Path, category: str,
-                     original_name: str, uploaded_by: str, record_count: int) -> None:
+                    original_name: str, uploaded_by: str, record_count: int) -> None:
     """
     Drives one freshly-ingested Bronze table through Silver -> Gold ->
     vector index, recording status/errors in the registry at every
@@ -103,7 +157,8 @@ def process_dataset(bronze_table: str, bronze_path: Path, category: str,
         silver_path = clean_and_promote(bronze_path, table_name=bronze_table)
     except Exception as e:
         logger.error(f"[{bronze_table}] Silver promotion failed: {e}")
-        registry.upsert_dataset(bronze_table, silver_status="failed", error=str(e))
+        registry.upsert_dataset(
+            bronze_table, silver_status="failed", error=str(e))
         return
     registry.upsert_dataset(bronze_table, silver_status="ready")
 
@@ -114,7 +169,8 @@ def process_dataset(bronze_table: str, bronze_path: Path, category: str,
         build_gold_table(silver_df, table_name=bronze_table)
     except Exception as e:
         logger.error(f"[{bronze_table}] Gold build failed: {e}")
-        registry.upsert_dataset(bronze_table, gold_status="failed", error=str(e))
+        registry.upsert_dataset(
+            bronze_table, gold_status="failed", error=str(e))
         return
     registry.upsert_dataset(
         bronze_table,
@@ -138,7 +194,9 @@ def process_dataset(bronze_table: str, bronze_path: Path, category: str,
         )
     except Exception as e:
         logger.error(f"[{bronze_table}] Vector index build failed: {e}")
-        registry.upsert_dataset(bronze_table, vector_status="failed", error=str(e))
+        registry.upsert_dataset(
+            bronze_table, vector_status="failed", error=str(e))
         return
     registry.upsert_dataset(bronze_table, vector_status="ready")
-    logger.info(f"[{bronze_table}] Pipeline complete: Bronze -> Silver -> Gold -> Vector index")
+    logger.info(
+        f"[{bronze_table}] Pipeline complete: Bronze -> Silver -> Gold -> Vector index")

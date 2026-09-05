@@ -35,7 +35,8 @@ def find_combinable_datasets(uploaded_by: str) -> list[dict]:
     all. Ties (multiple groups of the same size) are broken by total
     row count, so the combination with the most actual data wins.
     """
-    ready = [d for d in registry.list_datasets(uploaded_by=uploaded_by) if d.get("gold_status") == "ready"]
+    ready = [d for d in registry.list_datasets(
+        uploaded_by=uploaded_by) if d.get("gold_status") == "ready"]
     groups: dict[tuple, list[dict]] = {}
     for d in ready:
         signature = tuple(sorted(d.get("columns") or []))
@@ -47,8 +48,49 @@ def find_combinable_datasets(uploaded_by: str) -> list[dict]:
     if not candidates:
         return []
 
-    candidates.sort(key=lambda g: sum(d.get("record_count") or 0 for d in g), reverse=True)
+    candidates.sort(key=lambda g: sum(
+        d.get("record_count") or 0 for d in g), reverse=True)
     return candidates[0]
+
+
+def describe_combine_status(uploaded_by: str) -> dict:
+    """
+    Explains, in UI-displayable terms, whether the combined virtual
+    table is available and why/why not — find_combinable_datasets()
+    just returns [] when nothing qualifies, which is correct for
+    resolve_dataset() but gives a user staring at a dropdown with no
+    "All datasets (combined)" option in it no way to tell that it isn't
+    a bug: combining is exact-column-match-only by design (see
+    find_combinable_datasets docstring), so two datasets with different
+    schemas simply never produce a combined option.
+    """
+    ready = [d for d in registry.list_datasets(
+        uploaded_by=uploaded_by) if d.get("gold_status") == "ready"]
+    group = find_combinable_datasets(uploaded_by)
+
+    if group:
+        return {
+            "eligible": True,
+            "ready_dataset_count": len(ready),
+            "combined_dataset_count": len(group),
+            "combined_names": [d.get("original_name") or d.get("table_name") for d in group],
+            "reason": None,
+        }
+
+    if len(ready) < 2:
+        reason = "Upload at least 2 datasets and let them finish the Gold stage to unlock combining."
+    else:
+        reason = (f"You have {len(ready)} ready datasets, but no two of them share an identical "
+                  f"set of column names, so there's nothing eligible to combine yet — combining "
+                  f"only activates for datasets with matching schemas.")
+
+    return {
+        "eligible": False,
+        "ready_dataset_count": len(ready),
+        "combined_dataset_count": 0,
+        "combined_names": [],
+        "reason": reason,
+    }
 
 
 def load_combined_gold_table(uploaded_by: str) -> pd.DataFrame:
@@ -61,13 +103,15 @@ def load_combined_gold_table(uploaded_by: str) -> pd.DataFrame:
     """
     group = find_combinable_datasets(uploaded_by)
     if not group:
-        raise ValueError("No two ready datasets share a matching schema to combine.")
+        raise ValueError(
+            "No two ready datasets share a matching schema to combine.")
 
     frames = []
     for entry in group:
         df = load_gold_table(entry["table_name"])
         df = df.copy()
-        df["_source_dataset"] = entry.get("original_name") or entry["table_name"]
+        df["_source_dataset"] = entry.get(
+            "original_name") or entry["table_name"]
         frames.append(df)
 
     combined = pd.concat(frames, ignore_index=True)
@@ -80,7 +124,8 @@ def load_combined_gold_table(uploaded_by: str) -> pd.DataFrame:
     # rows once ids collide across sources. Any other id-like column
     # (e.g. a UUID-style '_id') is untouched and still usable for display.
     combined[config.JOIN_KEY] = range(len(combined))
-    logger.info(f"Combined {len(group)} datasets into one table: {len(combined)} total rows")
+    logger.info(
+        f"Combined {len(group)} datasets into one table: {len(combined)} total rows")
     return combined
 
 
@@ -131,7 +176,8 @@ def build_gold_table(silver_df: pd.DataFrame, table_name: str = "main") -> Path:
 
     original_size = df.memory_usage(deep=True).sum()
     stored_size = dest_path.stat().st_size
-    storage_efficiency = round(original_size / stored_size, 2) if stored_size else None
+    storage_efficiency = round(
+        original_size / stored_size, 2) if stored_size else None
 
     logger.info(f"Built Gold table '{table_name}': {len(df)} records, "
                 f"storage efficiency {storage_efficiency}x")
@@ -141,7 +187,8 @@ def build_gold_table(silver_df: pd.DataFrame, table_name: str = "main") -> Path:
 def load_gold_table(table_name: str = "main") -> pd.DataFrame:
     path = config.GOLD_DIR / f"{table_name}.parquet"
     if not path.exists():
-        raise FileNotFoundError(f"No Gold table named '{table_name}' at {path}")
+        raise FileNotFoundError(
+            f"No Gold table named '{table_name}' at {path}")
     return pd.read_parquet(path)
 
 

@@ -572,6 +572,7 @@ input,select{ font-family:var(--font-ui); }
             <div class="field">
               <label>Dataset</label>
               <select id="sqlTableSelect"><option value="">Select a dataset…</option></select>
+              <div class="tmuted" id="sqlCombineHint" style="font-size:12px; margin-top:6px;"></div>
             </div>
           </div>
           <div class="field">
@@ -614,6 +615,7 @@ input,select{ font-family:var(--font-ui); }
             <div class="field">
               <label>Dataset</label>
               <select id="searchTableSelect"><option value="">Select a dataset…</option></select>
+              <div class="tmuted" id="searchCombineHint" style="font-size:12px; margin-top:6px;"></div>
             </div>
             <div class="field" style="flex:2;">
               <label>Search query</label>
@@ -635,6 +637,7 @@ input,select{ font-family:var(--font-ui); }
             <div class="field">
               <label>Dataset</label>
               <select id="reportTableSelect"><option value="">Select a dataset…</option></select>
+              <div class="tmuted" id="reportCombineHint" style="font-size:12px; margin-top:6px;"></div>
             </div>
             <div class="field" style="flex:2;">
               <label>Question</label>
@@ -843,12 +846,32 @@ input,select{ font-family:var(--font-ui); }
     if (subEl) subEl.textContent = datasets.length ? datasets.length + ' total' : 'No datasets yet';
   }
 
+  function formatBytes(bytes){
+    if (!bytes) return '0 MB';
+    var mb = bytes / (1024 * 1024);
+    if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+    return mb.toFixed(1) + ' MB';
+  }
+
   function renderStats(){
     var totalRows = datasets.reduce(function(sum, d){ return sum + (d.rows || 0); }, 0);
     document.getElementById('statRecords').textContent = totalRows.toLocaleString();
     document.getElementById('statDatasets').textContent = datasets.length;
-    document.getElementById('statStorage').textContent = (datasets.length * 3.2).toFixed(1) + ' MB';
-    document.getElementById('statQueries').textContent = '0';
+
+    // Real numbers from GET /datasets/stats (actual on-disk bytes +
+    // actual query count) instead of the old placeholder
+    // `datasets.length * 3.2` guess and a permanently-hardcoded '0'.
+    fetch(API_BASE + '/datasets/stats', { headers: authHeaders() })
+      .then(function(res){
+        if (res.status === 401){ logout(); throw 'unauthorized'; }
+        if (!res.ok) throw new Error('Failed to load stats');
+        return res.json();
+      })
+      .then(function(stats){
+        document.getElementById('statStorage').textContent = formatBytes(stats.storage_bytes);
+        document.getElementById('statQueries').textContent = (stats.ai_queries || 0).toLocaleString();
+      })
+      .catch(function(){ /* leave last-known values on screen */ });
   }
 
   function fillSelect(selectEl, list, placeholder){
@@ -874,6 +897,33 @@ input,select{ font-family:var(--font-ui); }
       if (breakdownSelect.value && breakdownSelect.value !== hadValue) loadOverviewCharts(breakdownSelect.value);
       else if (!goldReady.length) loadOverviewCharts(null);
     }
+
+    loadCombineStatus();
+  }
+
+  /* "All datasets (combined)" shows up on its own in the Dataset
+     dropdowns above (the backend inserts it as a synthetic entry with
+     gold_status/vector_status already 'ready' once it's eligible — see
+     medallion/gold.find_combinable_datasets). What's missing without
+     this is any explanation for why it's absent when it isn't eligible
+     yet, which otherwise just looks like the feature disappeared. */
+  function loadCombineStatus(){
+    fetch(API_BASE + '/datasets/combine-status', { headers: authHeaders() })
+      .then(function(res){
+        if (res.status === 401){ logout(); throw 'unauthorized'; }
+        if (!res.ok) throw new Error('Failed to load combine status');
+        return res.json();
+      })
+      .then(function(status){
+        var msg = status.eligible
+          ? '"All datasets (combined)" is available above — combining ' + status.combined_dataset_count + ' datasets with matching schemas.'
+          : (status.reason || '');
+        ['sqlCombineHint', 'searchCombineHint', 'reportCombineHint'].forEach(function(id){
+          var el = document.getElementById(id);
+          if (el) el.textContent = msg;
+        });
+      })
+      .catch(function(){ /* leave hints blank rather than blocking the page */ });
   }
 
   function refreshAll(){
@@ -1305,6 +1355,17 @@ input,select{ font-family:var(--font-ui); }
   /* ============================================================
      SEMANTIC SEARCH — POST /search/query
   ============================================================ */
+  // Semantic Search always ranks by meaning-similarity to the query text
+  // via FAISS -- it has no numeric filtering step at all (see
+  // search/routes.py: it calls semantic_query() directly, never the
+  // query planner that Reports/SQL use). A query like "clothing less
+  // than 1000 rupees" gets embedded and matched by *wording*, so the
+  // "less than 1000" part is never actually applied as a filter -- that
+  // is expected behavior for this tool, not a bug, but it looks exactly
+  // like one without a heads-up. Flag it client-side rather than
+  // silently returning numerically-wrong-looking rows.
+  var NUMERIC_INTENT = /\b(more than|less than|greater than|at least|at most|under|over|below|above|between)\b|\d+\s*%|[$₹]\s*\d|\b\d+\s*(rupees|rs|dollars|usd)\b/i;
+
   document.getElementById('searchRunBtn').addEventListener('click', function(){
     var area = document.getElementById('searchResultArea');
     var table = document.getElementById('searchTableSelect').value;
@@ -1312,12 +1373,16 @@ input,select{ font-family:var(--font-ui); }
     if (!table){ area.innerHTML = '<div class="inline-msg error">Pick a dataset first.</div>'; return; }
     if (!q){ area.innerHTML = '<div class="inline-msg error">Type something to search for.</div>'; return; }
 
-    area.innerHTML = '<div class="inline-msg">Searching…</div>';
+    var numericWarning = NUMERIC_INTENT.test(q)
+      ? '<div class="inline-msg" style="margin-bottom:10px;">Heads up: Semantic Search ranks by meaning, not by number — any price/percentage/threshold in your query is not applied as a filter. For "less than X" or "more than Y%" questions, use <b>Reports</b> or <b>SQL Explorer</b> instead.</div>'
+      : '';
+
+    area.innerHTML = numericWarning + '<div class="inline-msg">Searching…</div>';
     postJson('/search/query', { table_name: table, query: q, top_k: 10 })
-      .then(function(data){ area.innerHTML = resultTableHtml(data.columns, data.rows, data.rows.length, false); })
+      .then(function(data){ area.innerHTML = numericWarning + resultTableHtml(data.columns, data.rows, data.rows.length, false); })
       .catch(function(err){
         if (err === 'unauthorized') return;
-        area.innerHTML = '<div class="inline-msg error">' + escapeHtml(typeof err === 'string' ? err : 'Search failed.') + '</div>';
+        area.innerHTML = numericWarning + '<div class="inline-msg error">' + escapeHtml(typeof err === 'string' ? err : 'Search failed.') + '</div>';
       });
   });
 
@@ -1334,7 +1399,11 @@ input,select{ font-family:var(--font-ui); }
     area.innerHTML = '<div class="inline-msg">Generating report…</div>';
     postJson('/reports/generate', { table_name: table, question: question })
       .then(function(data){
-        area.innerHTML =
+        var warnings = (data.analysis && data.analysis.warnings) || [];
+        var warningHtml = warnings.length
+          ? '<div class="inline-msg error" style="margin-bottom:10px;">' + warnings.map(escapeHtml).join('<br>') + '</div>'
+          : '';
+        area.innerHTML = warningHtml +
           '<div class="report-item"><div class="rq">' + escapeHtml(question) + '</div>' +
           '<div class="rs">' + escapeHtml(data.summary) + '</div></div>' +
           resultTableHtml(data.columns, data.rows, data.rows.length, false);

@@ -14,7 +14,8 @@ router = APIRouter(prefix="/sql", tags=["sql"])
 
 class SqlQueryRequest(BaseModel):
     table_name: str
-    query: str | None = None          # pandas DataFrame.query()-style filter, e.g. "price > 100"
+    # pandas DataFrame.query()-style filter, e.g. "price > 100"
+    query: str | None = None
     group_by: list[str] | None = None
     agg_column: str | None = None
     agg_func: str | None = None       # "sum" | "mean" | "count" | "max" | "min"
@@ -28,20 +29,23 @@ def _authorized_ready_dataset(table_name: str, current_user: User) -> None:
     lookup, since it isn't a real dataset entry."""
     if table_name == COMBINED_TABLE_SENTINEL:
         if not find_combinable_datasets(current_user.username):
-            raise HTTPException(status_code=404, detail="No datasets are currently eligible to combine")
+            raise HTTPException(
+                status_code=404, detail="No datasets are currently eligible to combine")
         return
     entry = registry.get_dataset(table_name)
     if not entry or entry.get("uploaded_by") != current_user.username:
         raise HTTPException(status_code=404, detail="Dataset not found")
     if entry.get("gold_status") != "ready":
-        raise HTTPException(status_code=409, detail=f"Dataset not ready yet (gold_status={entry.get('gold_status')})")
+        raise HTTPException(
+            status_code=409, detail=f"Dataset not ready yet (gold_status={entry.get('gold_status')})")
 
 
 @router.get("/tables")
 def list_queryable_tables(current_user: User = Depends(get_current_user)):
     entries = registry.list_datasets(uploaded_by=current_user.username)
     tables = [
-        {"table_name": e["table_name"], "original_name": e.get("original_name"), "columns": e.get("columns", [])}
+        {"table_name": e["table_name"], "original_name": e.get(
+            "original_name"), "columns": e.get("columns", [])}
         for e in entries if e.get("gold_status") == "ready"
     ]
 
@@ -65,16 +69,20 @@ def run_sql(req: SqlQueryRequest, current_user: User = Depends(get_current_user)
         try:
             df = query_engine.filter_query(df, req.query)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid query expression: {e}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid query expression: {e}")
 
     if req.group_by and req.agg_column and req.agg_func:
         try:
-            df = query_engine.aggregate_query(df, group_by=req.group_by, agg_spec={req.agg_column: req.agg_func})
+            df = query_engine.aggregate_query(df, group_by=req.group_by, agg_spec={
+                                              req.agg_column: req.agg_func})
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Aggregation failed: {e}")
+            raise HTTPException(
+                status_code=400, detail=f"Aggregation failed: {e}")
 
     limit = max(1, min(req.limit, 1000))
     page = df.head(limit)
+    registry.record_query(current_user.username)
     return {
         "table_name": req.table_name,
         "columns": list(df.columns),

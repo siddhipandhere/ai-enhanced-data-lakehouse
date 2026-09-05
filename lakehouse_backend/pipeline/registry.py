@@ -28,19 +28,20 @@ import config
 REGISTRY_PATH = config.DATA_ROOT / "_registry.json"
 _lock = threading.Lock()
 
-_EMPTY = {"datasets": {}, "reports": []}
+_EMPTY = {"datasets": {}, "reports": [], "query_counts": {}}
 
 
 def _read() -> dict:
     if not REGISTRY_PATH.exists():
-        return {"datasets": {}, "reports": []}
+        return {"datasets": {}, "reports": [], "query_counts": {}}
     try:
         with open(REGISTRY_PATH) as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
-        return {"datasets": {}, "reports": []}
+        return {"datasets": {}, "reports": [], "query_counts": {}}
     data.setdefault("datasets", {})
     data.setdefault("reports", [])
+    data.setdefault("query_counts", {})
     return data
 
 
@@ -88,7 +89,7 @@ def add_report(entry: dict) -> dict:
     with _lock:
         data = _read()
         entry = {**entry, "id": entry.get("id") or f"r_{len(data['reports']) + 1}_{datetime.now().timestamp():.0f}",
-                  "created_at": datetime.now().isoformat()}
+                 "created_at": datetime.now().isoformat()}
         data["reports"].insert(0, entry)
         data["reports"] = data["reports"][:100]  # keep the file bounded
         _write(data)
@@ -100,6 +101,67 @@ def list_reports(uploaded_by: str | None = None, limit: int = 50) -> list[dict]:
     if uploaded_by:
         reports = [r for r in reports if r.get("uploaded_by") == uploaded_by]
     return reports[:limit]
+
+
+def record_query(uploaded_by: str) -> int:
+    """
+    Increments and persists this user's "AI queries" counter. Called
+    once per Report / SQL Explorer / Semantic Search request that
+    actually executes, so the Overview page's "AI queries" KPI reflects
+    real usage instead of the hardcoded '0' it shipped with.
+    """
+    with _lock:
+        data = _read()
+        data["query_counts"][uploaded_by] = data["query_counts"].get(
+            uploaded_by, 0) + 1
+        _write(data)
+        return data["query_counts"][uploaded_by]
+
+
+def get_query_count(uploaded_by: str) -> int:
+    return _read()["query_counts"].get(uploaded_by, 0)
+
+
+def _dir_size_bytes(path: Path) -> int:
+    if not path.exists():
+        return 0
+    if path.is_file():
+        return path.stat().st_size
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def storage_used_bytes(uploaded_by: str) -> int:
+    """
+    Real on-disk storage for this user's datasets — Bronze + Silver
+    Delta directories, the Gold parquet file, and (if this user
+    currently owns it) the shared FAISS vector store — instead of the
+    old placeholder ``datasets.length * 3.2 MB`` estimate that had no
+    relationship to actual data size.
+    """
+    entries = list_datasets(uploaded_by=uploaded_by)
+    total = 0
+    for e in entries:
+        table_name = e.get("table_name")
+        if not table_name:
+            continue
+        total += _dir_size_bytes(config.BRONZE_DIR / table_name)
+        total += _dir_size_bytes(config.SILVER_DIR / table_name)
+        total += _dir_size_bytes(config.GOLD_DIR / f"{table_name}.parquet")
+
+    meta_path = config.VECTOR_STORE_DIR / "meta.json"
+    if meta_path.exists():
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+            if meta.get("table_name") in {e.get("table_name") for e in entries}:
+                total += _dir_size_bytes(config.VECTOR_STORE_DIR /
+                                         "index.faiss")
+                total += _dir_size_bytes(config.VECTOR_STORE_DIR /
+                                         "id_map.csv")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return total
 
 
 def delete_dataset(table_name: str) -> bool:
@@ -126,7 +188,8 @@ def delete_dataset(table_name: str) -> bool:
         if table_name not in data["datasets"]:
             return False
         del data["datasets"][table_name]
-        data["reports"] = [r for r in data["reports"] if r.get("table_name") != table_name]
+        data["reports"] = [r for r in data["reports"]
+                           if r.get("table_name") != table_name]
         _write(data)
 
     for base_dir, suffix in (

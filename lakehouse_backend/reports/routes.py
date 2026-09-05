@@ -27,14 +27,16 @@ def list_reports(current_user: User = Depends(get_current_user)):
 def generate_report(req: ReportRequest, current_user: User = Depends(get_current_user)):
     if req.table_name == COMBINED_TABLE_SENTINEL:
         if not find_combinable_datasets(current_user.username):
-            raise HTTPException(status_code=404, detail="No datasets are currently eligible to combine")
+            raise HTTPException(
+                status_code=404, detail="No datasets are currently eligible to combine")
         original_name = f"All datasets (combined)"
     else:
         entry = registry.get_dataset(req.table_name)
         if not entry or entry.get("uploaded_by") != current_user.username:
             raise HTTPException(status_code=404, detail="Dataset not found")
         if entry.get("gold_status") != "ready":
-            raise HTTPException(status_code=409, detail=f"Dataset not ready yet (gold_status={entry.get('gold_status')})")
+            raise HTTPException(
+                status_code=409, detail=f"Dataset not ready yet (gold_status={entry.get('gold_status')})")
         original_name = entry.get("original_name")
 
     df = resolve_dataset(req.table_name, current_user.username)
@@ -51,6 +53,7 @@ def generate_report(req: ReportRequest, current_user: User = Depends(get_current
         "summary": result["summary"],
         "analysis": result["analysis"],
     })
+    registry.record_query(current_user.username)
 
     return {
         "id": saved["id"],

@@ -41,10 +41,12 @@ MAX_FILES_PER_BULK_UPLOAD = 25
 # --- Spark / Delta Lake (Option D: local[*] mode, no HDFS/cluster) ---
 SPARK_APP_NAME = "ai-lakehouse-local"
 SPARK_MASTER = os.getenv("SPARK_MASTER", "local[*]")
-SPARK_SHUFFLE_PARTITIONS = int(os.getenv("SPARK_SHUFFLE_PARTITIONS", "4"))  # small local datasets
+SPARK_SHUFFLE_PARTITIONS = int(
+    os.getenv("SPARK_SHUFFLE_PARTITIONS", "4"))  # small local datasets
 
 # --- Auth ---
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-change-me-before-viva")
+JWT_SECRET_KEY = os.getenv(
+    "JWT_SECRET_KEY", "dev-secret-change-me-before-viva")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 USERS_DB_PATH = DATA_ROOT / "users.db"
@@ -57,7 +59,8 @@ DEFAULT_TOP_K = 10
 
 # --- LLM (Groq) ---
 GROQ_MODEL_NAME = os.getenv("GROQ_MODEL_NAME", "openai/gpt-oss-120b")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_KEY = os.getenv(
+    "GROQ_API_KEY", "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")
 MAX_LLM_CALLS_PER_QUERY = 2  # Orchestrator classification + Report summary
 
 # --- Record keying ---

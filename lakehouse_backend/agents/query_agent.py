@@ -15,17 +15,34 @@ from utils.logger import get_logger
 logger = get_logger("query_agent")
 
 
-def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) -> pd.DataFrame:
+def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Returns (result, warnings). Every step here used to catch its own
+    exception and silently fall through to unfiltered/partial data —
+    which meant a failed filter and a *successful* filter that simply
+    matched everything looked identical by the time the Report agent
+    saw the result, and the LLM would go on to describe the fallback
+    data as if the requested condition had actually been applied.
+    Collecting warnings here lets the Analysis/Report agents state
+    plainly when that happened instead of quietly presenting fallback
+    data as the real answer.
+    """
     if df.empty:
-        return df
+        return df, []
 
     result = df
+    warnings: list[str] = []
 
     if plan["filter_query"]:
         try:
             result = query_engine.filter_query(result, plan["filter_query"])
         except Exception as e:
-            logger.warning(f"Filter execution failed ({e}), continuing with unfiltered data")
+            logger.warning(
+                f"Filter execution failed ({e}), continuing with unfiltered data")
+            warnings.append(
+                f"The filter '{plan['filter_query']}' could not be applied ({e}); "
+                f"the figures below are for the FULL unfiltered dataset, not the requested subset."
+            )
 
     if plan["group_by"] and plan["agg_column"] and plan["agg_func"]:
         try:
@@ -34,7 +51,10 @@ def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) ->
                 agg_spec={plan["agg_column"]: plan["agg_func"]},
             )
         except Exception as e:
-            logger.warning(f"Aggregation failed ({e}), returning pre-aggregation result")
+            logger.warning(
+                f"Aggregation failed ({e}), returning pre-aggregation result")
+            warnings.append(
+                f"Grouping/aggregation by {plan['group_by']} failed ({e}); showing row-level data instead.")
 
     if plan["mode"] in {"semantic", "both"} and plan["semantic_text_column"]:
         try:
@@ -46,16 +66,22 @@ def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) ->
             # (None != None is False, so no rebuild fires) and return
             # search results embedded from the wrong dataset entirely,
             # with no error to signal it.
-            build_index_if_needed(df, text_column=plan["semantic_text_column"], table_name=table_name)
-            result = query_engine.semantic_query(result, plan.get("_user_request", ""), top_k=plan["top_k"])
+            build_index_if_needed(
+                df, text_column=plan["semantic_text_column"], table_name=table_name)
+            result = query_engine.semantic_query(
+                result, plan.get("_user_request", ""), top_k=plan["top_k"])
         except Exception as e:
-            logger.warning(f"Semantic search failed ({e}), returning structured result only")
+            logger.warning(
+                f"Semantic search failed ({e}), returning structured result only")
+            warnings.append(
+                f"Semantic search failed ({e}); showing structured results only, not ranked by meaning.")
 
-    return result
+    return result, warnings
 
 
-def run_query(user_request: str, df: pd.DataFrame, plan: dict, table_name: str | None = None) -> pd.DataFrame:
+def run_query(user_request: str, df: pd.DataFrame, plan: dict, table_name: str | None = None) -> tuple[pd.DataFrame, list[str]]:
     """Convenience wrapper — attaches the raw request text (needed for the
-    semantic search embedding step) and executes the plan."""
+    semantic search embedding step) and executes the plan. Returns
+    (result, warnings); see execute_plan()."""
     plan = {**plan, "_user_request": user_request}
     return execute_plan(plan, df, table_name=table_name)

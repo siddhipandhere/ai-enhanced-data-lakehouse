@@ -27,7 +27,21 @@ logger = get_logger("query_planner")
 
 _client = None
 
-_BANNED_SUBSTRINGS = ("import", "__", "exec", "eval", "lambda", "os.", "sys.", "open(", "subprocess")
+_BANNED_SUBSTRINGS = ("import", "__", "exec", "eval",
+                      "lambda", "os.", "sys.", "open(", "subprocess")
+
+# Matches "<column> <comparison operator> <number>", e.g. "discount > 50".
+_NUMERIC_COMPARISON = re.compile(
+    r"([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|==|!=|>|<)\s*(-?\d+(?:\.\d+)?)")
+
+_PERCENT_IN_QUESTION = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+# Inclusive phrases ("at least", "at most") get their own >= / <= operator
+# instead of being lumped in with the strict words -- "at least 50%"
+# should include exactly 50%, not exclude it the way "more than 50%" does.
+_LTE_WORDS = ("at most",)
+_GTE_WORDS = ("at least",)
+_LT_WORDS = ("less than", "under", "below", "fewer than")
+_GT_WORDS = ("more than", "greater than", "over", "above", "exceeding")
 
 PLAN_PROMPT = """You are a query planner for a data analytics system. Given a user's
 question and the schema of the currently loaded dataset, produce a JSON plan.
@@ -96,19 +110,115 @@ def _sanitize_filter_query(filter_query: str | None, valid_columns: list[str]) -
 
     lowered = filter_query.lower()
     if any(bad in lowered for bad in _BANNED_SUBSTRINGS):
-        logger.warning(f"Rejected filter_query containing banned pattern: {filter_query}")
+        logger.warning(
+            f"Rejected filter_query containing banned pattern: {filter_query}")
         return None
 
     # Every bare identifier in the expression must be either a known
     # column or a Python/pandas keyword/operator — not an arbitrary name.
     identifiers = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", filter_query))
-    allowed = set(valid_columns) | {"and", "or", "not", "in", "True", "False", "None"}
+    allowed = set(valid_columns) | {"and", "or",
+                                    "not", "in", "True", "False", "None"}
     unknown = identifiers - allowed
     if unknown:
-        logger.warning(f"Rejected filter_query referencing unknown identifiers {unknown}: {filter_query}")
+        logger.warning(
+            f"Rejected filter_query referencing unknown identifiers {unknown}: {filter_query}")
         return None
 
     return filter_query
+
+
+def _fix_numeric_comparison_on_text_column(filter_query: str | None, df: pd.DataFrame) -> str | None:
+    """
+    Safety net for exactly the "discount > 50" failure mode: silver.py's
+    _extract_percentage_columns() derives a numeric "<col>_pct" sibling
+    whenever a text column looks like "69% off", specifically so numeric
+    filters have something valid to compare against. The planner prompt
+    tells the LLM to use that sibling column, but if it ever ignores the
+    instruction and emits a comparison directly against the original
+    text column instead, pandas.query() raises a TypeError comparing
+    str > int -- which query_agent.execute_plan() catches and silently
+    falls back to the FULL unfiltered dataset, with no filtering having
+    actually happened at all (the exact bug behind a "which products
+    have more than 50% off" report that comes back showing products
+    with less than 50% off: the filter never ran, so the answer is just
+    the raw table).
+
+    Rewriting the comparison onto the numeric sibling column here — when
+    one exists — fixes the filter before it ever gets a chance to fail
+    silently downstream.
+    """
+    if not filter_query:
+        return filter_query
+
+    def _rewrite(match: re.Match) -> str:
+        col, op, num = match.group(1), match.group(2), match.group(3)
+        if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
+            pct_col = f"{col}_pct"
+            if pct_col in df.columns and pd.api.types.is_numeric_dtype(df[pct_col]):
+                logger.info(f"Rewriting filter comparison on non-numeric column '{col}' "
+                            f"to its derived numeric column '{pct_col}'")
+                return f"{pct_col} {op} {num}"
+        return match.group(0)
+
+    return _NUMERIC_COMPARISON.sub(_rewrite, filter_query)
+
+
+def _fallback_percent_filter(question: str, df: pd.DataFrame) -> str | None:
+    """
+    Deterministic safety net for when the LLM returns NO filter_query at
+    all for an obviously numeric-threshold question, e.g. "which
+    products have more than 50% discount" planned as
+    {"filter_query": null, ...}. Observed in practice: when a Gold table
+    has more than one "_pct"-suffixed numeric column (a real
+    "discount_pct" alongside an unrelated one derived from some other
+    text column), the LLM can hedge rather than commit to either one,
+    and the planner's own "if nothing clearly answers this, return the
+    full table" instruction then applies -- silently turning a
+    perfectly answerable threshold question into an unfiltered dump of
+    every row, with nothing in the plan itself indicating a failure.
+
+    This never overrides an LLM-produced filter_query -- it only fires
+    when the model returned none. It parses the question for a percent
+    value and a comparison direction, then picks whichever "<x>_pct"
+    numeric column has the most keyword overlap with the question (e.g.
+    "discount" in the question favors "discount_pct" over an unrelated
+    "description_pct" even if both exist), refusing to guess if no
+    "_pct" column shares any word with the question at all.
+    """
+    match = _PERCENT_IN_QUESTION.search(question)
+    if not match:
+        return None
+    number = match.group(1)
+
+    lowered = question.lower()
+    if any(w in lowered for w in _LTE_WORDS):
+        op = "<="
+    elif any(w in lowered for w in _GTE_WORDS):
+        op = ">="
+    elif any(w in lowered for w in _LT_WORDS):
+        op = "<"
+    elif any(w in lowered for w in _GT_WORDS):
+        op = ">"
+    else:
+        return None
+
+    pct_columns = [c for c in df.columns if c.endswith(
+        "_pct") and pd.api.types.is_numeric_dtype(df[c])]
+    if not pct_columns:
+        return None
+
+    question_words = set(re.findall(r"[a-z]+", lowered))
+
+    def _overlap(col: str) -> int:
+        base_words = set(col[: -len("_pct")].split("_"))
+        return len(question_words & base_words)
+
+    best = max(pct_columns, key=_overlap)
+    if _overlap(best) == 0:
+        return None  # no column name relates to anything in the question -- don't guess blindly
+
+    return f"{best} {op} {number}"
 
 
 def _validate_plan(plan: dict, df: pd.DataFrame) -> dict:
@@ -136,9 +246,13 @@ def _validate_plan(plan: dict, df: pd.DataFrame) -> dict:
         if mode in {"semantic", "both"}:
             mode = "sql"  # can't do semantic search without a valid text column
 
+    filter_query = _sanitize_filter_query(
+        plan.get("filter_query"), valid_columns)
+    filter_query = _fix_numeric_comparison_on_text_column(filter_query, df)
+
     return {
         "mode": mode,
-        "filter_query": _sanitize_filter_query(plan.get("filter_query"), valid_columns),
+        "filter_query": filter_query,
         "group_by": group_by,
         "agg_column": agg_column,
         "agg_func": agg_func,
@@ -181,11 +295,21 @@ def build_plan(user_request: str, df: pd.DataFrame) -> dict:
         raw = response.choices[0].message.content.strip()
         raw = re.sub(r"^```json|```$", "", raw, flags=re.MULTILINE).strip()
         if not raw:
-            raise ValueError("Model returned empty content (likely exhausted max_tokens on reasoning before answering)")
+            raise ValueError(
+                "Model returned empty content (likely exhausted max_tokens on reasoning before answering)")
         plan = json.loads(raw)
         validated = _validate_plan(plan, df)
+
+        if not validated["filter_query"] and validated["mode"] == "sql":
+            fallback_filter = _fallback_percent_filter(user_request, df)
+            if fallback_filter:
+                logger.info(f"LLM returned no filter for an apparent percent-threshold question; "
+                            f"deterministic fallback applied: {fallback_filter}")
+                validated["filter_query"] = fallback_filter
+
         logger.info(f"Query plan: {validated}")
         return validated
     except Exception as e:
-        logger.error(f"Query planning failed, falling back to full-table result: {e}")
+        logger.error(
+            f"Query planning failed, falling back to full-table result: {e}")
         return _fallback_plan(df)
