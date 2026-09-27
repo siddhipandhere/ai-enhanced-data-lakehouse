@@ -23,16 +23,19 @@ module adds the two small things needed to make that safe:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
 
 import config
-from embeddings.vector_store import build_index_if_needed
-from medallion.gold import build_gold_table
+from embeddings.vector_store import build_index_if_needed, has_index
+from medallion.gold import build_gold_table, load_gold_table
+from medallion.refine import refine
 from medallion.silver import clean_and_promote, load_silver_as_pandas
 from pipeline import registry
 from utils.logger import get_logger
+from utils.media import image_column
 
 logger = get_logger("orchestration")
 
@@ -49,6 +52,9 @@ def _ensure_id_column(df: pd.DataFrame) -> pd.DataFrame:
     df.insert(0, config.JOIN_KEY, range(len(df)))
     return df
 
+
+_FILE_IDENTITY_COLUMNS = {"source_file", "original_name", "path", "source_path", "message_id",
+                          "image_format", "color_mode"}
 
 _MEANINGFUL_TEXT_LEN = 20  # below this, a string column reads as a short
 # label/code/badge, not free-form prose worth
@@ -88,7 +94,10 @@ def _pick_text_column(df: pd.DataFrame) -> str | None:
     candidates = []
     fallback_candidates = []
     for c in df.columns:
-        if c == config.JOIN_KEY:
+        # File-identity columns (added by PDF/image ingestion) are names, not
+        # content: indexing them made "semantic search" over a scanned PDF or
+        # an image just match file names. With no real text, skip the index.
+        if c == config.JOIN_KEY or c in _FILE_IDENTITY_COLUMNS:
             continue
         # pandas 3.x gives plain string columns a dedicated 'str' dtype
         # instead of 'object' by default. is_string_dtype() covers both
@@ -109,15 +118,26 @@ def _pick_text_column(df: pd.DataFrame) -> str | None:
         # "images" (list of URLs) and "product_details" (list of spec
         # dicts) columns both look like this.
         structured = sum(1 for v in sample if v.strip()[:1] in (
-            "[", "{") or v.strip().lower().startswith(("http://", "https://")))
+            "[", "{") or v.strip().lower().startswith(("http://", "https://", "file:", "dbfs:", "s3:"))
+            or re.match(r"^[A-Za-z]:[\\/]", v.strip())  # bare URLs and file paths aren't prose
+            or re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", v.strip()))  # nor are email addresses
         if structured / len(sample) > 0.5:
+            continue
+        # Dates, amounts and codes ("2001-05-01 00:00:00", "$1,200.50",
+        # "12/31") are strings of digits and separators -- nothing to
+        # search by meaning. Several Enron sheets indexed a date column.
+        numeric_like = sum(1 for v in sample if re.fullmatch(r"[\d\s:/.,+\-$%()]*", v.strip()))
+        if numeric_like / len(sample) > 0.5:
             continue
         avg_len = sum(len(v) for v in sample) / len(sample)
         if avg_len < 3:
             continue
         priority = next((i for i, kw in enumerate(
             _TEXT_COLUMN_KEYWORDS) if kw in c.lower()), len(_TEXT_COLUMN_KEYWORDS))
-        fallback_candidates.append((priority, -avg_len, c))
+        if priority < len(_TEXT_COLUMN_KEYWORDS):
+            # Short columns only qualify by name ("name", "title", ...): a
+            # short column called "month" or "bid_2" is not search text.
+            fallback_candidates.append((priority, -avg_len, c))
         if avg_len >= _MEANINGFUL_TEXT_LEN:
             candidates.append((-avg_len, priority, c))
 
@@ -134,6 +154,28 @@ def _pick_text_column(df: pd.DataFrame) -> str | None:
     return None
 
 
+IMAGE_SEARCH_NOTE = ("Built an image search index (CLIP): in Semantic Search, describe what's in a "
+                     "picture (e.g. 'an office tower', 'a stock price chart') to find it")
+
+
+def _pick_search_column(df: pd.DataFrame) -> tuple[str | None, str | None]:
+    """(column, kind): free text if the table has any, otherwise the image
+    bytes of an image collection (searched with CLIP), otherwise nothing."""
+    text_column = _pick_text_column(df)
+    if text_column:
+        return text_column, "text"
+    img = image_column(df)
+    if img:
+        return img, "image"
+    return None, None
+
+
+def _add_note(table_name: str, note: str) -> None:
+    notes = list((registry.get_dataset(table_name) or {}).get("refine_notes") or [])
+    if note not in notes:
+        registry.upsert_dataset(table_name, refine_notes=notes + [note])
+
+
 def process_dataset(bronze_table: str, bronze_path: Path, category: str,
                     original_name: str, uploaded_by: str, record_count: int) -> None:
     """
@@ -145,6 +187,7 @@ def process_dataset(bronze_table: str, bronze_path: Path, category: str,
     """
     registry.upsert_dataset(
         bronze_table,
+        create=True,
         original_name=original_name,
         category=category,
         uploaded_by=uploaded_by,
@@ -165,6 +208,11 @@ def process_dataset(bronze_table: str, bronze_path: Path, category: str,
     registry.upsert_dataset(bronze_table, gold_status="running")
     try:
         silver_df = load_silver_as_pandas(silver_path)
+        # Structural refinement (medallion/refine.py): parse raw email text,
+        # treat "NaN"/"N/A" text as missing, drop TOTAL rows, de-duplicate
+        # emails. The notes are shown on the Pipeline page.
+        silver_df, refine_notes = refine(silver_df)
+        registry.upsert_dataset(bronze_table, refine_notes=refine_notes)
         silver_df = _ensure_id_column(silver_df)
         build_gold_table(silver_df, table_name=bronze_table)
     except Exception as e:
@@ -179,8 +227,8 @@ def process_dataset(bronze_table: str, bronze_path: Path, category: str,
         record_count=len(silver_df),
     )
 
-    text_column = _pick_text_column(silver_df)
-    registry.upsert_dataset(bronze_table, text_column=text_column)
+    text_column, search_kind = _pick_search_column(silver_df)
+    registry.upsert_dataset(bronze_table, text_column=text_column, search_kind=search_kind)
 
     if not text_column or silver_df.empty:
         registry.upsert_dataset(bronze_table, vector_status="skipped")
@@ -197,6 +245,93 @@ def process_dataset(bronze_table: str, bronze_path: Path, category: str,
         registry.upsert_dataset(
             bronze_table, vector_status="failed", error=str(e))
         return
-    registry.upsert_dataset(bronze_table, vector_status="ready")
+    registry.upsert_dataset(bronze_table, vector_status="ready", error=None)
+    if search_kind == "image":
+        _add_note(bronze_table, IMAGE_SEARCH_NOTE)
     logger.info(
         f"[{bronze_table}] Pipeline complete: Bronze -> Silver -> Gold -> Vector index")
+
+
+def mark_running_stages_failed(table_name: str, error: str) -> None:
+    """Safety net for an unexpected exception escaping process_dataset():
+    without it the stage that was running stays "running" forever."""
+    entry = registry.get_dataset(table_name) or {}
+    updates = {st: "failed" for st in registry.STAGES if entry.get(st) == "running"}
+    registry.upsert_dataset(table_name, error=error, **updates)
+
+
+def retry_dataset(table_name: str) -> str:
+    """
+    Re-runs whatever didn't finish for one dataset (used by the Pipeline
+    page's Retry button, POST /pipeline/{table}/retry):
+      - Gold ready, only the vector index missing/failed -> rebuild just
+        the index from the Gold table (no Spark needed);
+      - otherwise, if the Bronze Delta table is still on disk -> re-run
+        Silver -> Gold -> index from Bronze.
+    Returns a short description of what was started. Raises ValueError
+    when there's nothing to retry from (Bronze data is gone).
+    """
+    entry = registry.get_dataset(table_name)
+    if not entry:
+        raise ValueError("Dataset not found")
+
+    if entry.get("gold_status") == "ready":
+        gold_df = load_gold_table(table_name)
+        text_column, search_kind = _pick_search_column(gold_df)
+        if entry.get("text_column") in gold_df.columns:
+            text_column = entry["text_column"]
+            search_kind = "image" if text_column == image_column(gold_df) else "text"
+        if not text_column:
+            registry.upsert_dataset(table_name, text_column=None, search_kind=None,
+                                    vector_status="skipped", error=None)
+            return "no text column; vector index skipped"
+        registry.upsert_dataset(table_name, text_column=text_column, search_kind=search_kind,
+                                vector_status="running", error=None)
+        try:
+            build_index_if_needed(gold_df, text_column=text_column,
+                                  id_column=config.JOIN_KEY, table_name=table_name)
+        except Exception as e:
+            logger.error(f"[{table_name}] Vector index retry failed: {e}")
+            registry.upsert_dataset(table_name, vector_status="failed", error=str(e))
+            return "vector index retry failed"
+        registry.upsert_dataset(table_name, vector_status="ready")
+        if search_kind == "image":
+            _add_note(table_name, IMAGE_SEARCH_NOTE)
+        return "vector index rebuilt"
+
+    bronze_path = config.BRONZE_DIR / table_name
+    if not (bronze_path / "_delta_log").exists():
+        raise ValueError("The Bronze data for this dataset no longer exists - delete it and upload the file again.")
+    registry.upsert_dataset(table_name, error=None, silver_status="pending",
+                            gold_status="pending", vector_status="pending")
+    process_dataset(
+        bronze_table=table_name, bronze_path=bronze_path,
+        category=entry.get("category"), original_name=entry.get("original_name") or table_name,
+        uploaded_by=entry.get("uploaded_by"), record_count=entry.get("record_count") or 0,
+    )
+    return "pipeline re-run from Bronze"
+
+
+def verify_vector_indexes() -> list[str]:
+    """
+    Startup check: a dataset marked vector_status="ready" must actually
+    have its own index on disk. Under the old single-slot design every
+    new upload overwrote the previous dataset's index while its status
+    stayed "ready"; the next search on it then re-embedded the whole
+    table inside the HTTP request (minutes -> looks like a hang). Such
+    datasets are flagged as failed so the Pipeline page offers Retry,
+    which rebuilds the index in the background instead.
+    """
+    flagged = []
+    for e in registry.list_datasets():
+        name = e.get("table_name")
+        if e.get("vector_status") != "ready" or not name:
+            continue
+        if not has_index(name):
+            registry.upsert_dataset(
+                name, vector_status="failed",
+                error="Search index missing (overwritten by an older version of the app). Click Retry to rebuild it.")
+            flagged.append(name)
+    if flagged:
+        logger.warning(f"Datasets whose search index is missing (Retry to rebuild): {flagged}")
+    return flagged

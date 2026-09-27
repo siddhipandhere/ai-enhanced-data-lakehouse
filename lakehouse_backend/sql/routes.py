@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from auth.dependencies import get_current_user
 from auth.models import User
+from agents.query_planner import check_filter_query
 from medallion.gold import COMBINED_TABLE_SENTINEL, find_combinable_datasets, resolve_dataset
 from pipeline import registry
 from sql import query_engine
@@ -20,13 +21,20 @@ class SqlQueryRequest(BaseModel):
     agg_column: str | None = None
     agg_func: str | None = None       # "sum" | "mean" | "count" | "max" | "min"
     limit: int = 200
+    # Sort aggregated rows by the aggregated value, largest first. Without
+    # it "top 15 categories" were the first 15 ALPHABETICALLY.
+    sort_desc: bool = False
+    # False for background calls (the Overview charts). Every Overview load
+    # fired 2 chart queries that were counted as "AI queries", inflating
+    # that KPI without the user asking anything.
+    track: bool = True
+
+
+_AGG_FUNCS = {"sum", "mean", "count", "max", "min", "median", "nunique"}
 
 
 def _authorized_ready_dataset(table_name: str, current_user: User) -> None:
-    """Raises if table_name isn't something this user is allowed to
-    query. The combined-table sentinel is authorized by checking
-    eligibility (2+ matching-schema datasets) rather than a registry
-    lookup, since it isn't a real dataset entry."""
+    """Raises if table_name isn't something this user is allowed to query."""
     if table_name == COMBINED_TABLE_SENTINEL:
         if not find_combinable_datasets(current_user.username):
             raise HTTPException(
@@ -66,23 +74,39 @@ def run_sql(req: SqlQueryRequest, current_user: User = Depends(get_current_user)
     df = resolve_dataset(req.table_name, current_user.username)
 
     if req.query:
+        # Raw user input goes into pandas.query(); it must pass the same
+        # validator the LLM planner uses (it previously went straight in,
+        # and "@os.system(...)" executed on the server).
+        safe_query, reason = check_filter_query(req.query, list(df.columns))
+        if reason:
+            raise HTTPException(
+                status_code=400, detail=f"Query rejected: {reason}")
         try:
-            df = query_engine.filter_query(df, req.query)
+            df = query_engine.filter_query(df, safe_query)
         except Exception as e:
             raise HTTPException(
                 status_code=400, detail=f"Invalid query expression: {e}")
 
     if req.group_by and req.agg_column and req.agg_func:
+        missing = [c for c in [*req.group_by,
+                               req.agg_column] if c not in df.columns]
+        if missing:
+            raise HTTPException(
+                status_code=400, detail=f"Unknown column(s): {missing}")
+        if req.agg_func not in _AGG_FUNCS:
+            raise HTTPException(
+                status_code=400, detail=f"agg_func must be one of {sorted(_AGG_FUNCS)}")
         try:
             df = query_engine.aggregate_query(df, group_by=req.group_by, agg_spec={
-                                              req.agg_column: req.agg_func})
+                                              req.agg_column: req.agg_func}, sort_desc=req.sort_desc)
         except Exception as e:
             raise HTTPException(
                 status_code=400, detail=f"Aggregation failed: {e}")
 
     limit = max(1, min(req.limit, 1000))
     page = df.head(limit)
-    registry.record_query(current_user.username)
+    if req.track:
+        registry.record_query(current_user.username)
     return {
         "table_name": req.table_name,
         "columns": list(df.columns),

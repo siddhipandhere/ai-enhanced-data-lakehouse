@@ -52,7 +52,8 @@ def _referenced_columns(plan: dict, df: pd.DataFrame) -> list[str]:
     return [c for c in found if not (c in seen or seen.add(c))]
 
 
-def handle_request(user_request: str, gold_df: pd.DataFrame, table_name: str | None = None) -> dict:
+def handle_request(user_request: str, gold_df: pd.DataFrame, table_name: str | None = None,
+                   text_column: str | None = None) -> dict:
     """
     Main entry point. Returns the query plan, raw results, analysis
     stats, and a plain-language summary ready for display.
@@ -63,6 +64,16 @@ def handle_request(user_request: str, gold_df: pd.DataFrame, table_name: str | N
     row count and text column (see query_agent.py for why this matters).
     """
     plan = build_plan(user_request, gold_df)
+    # The pipeline already picked (by content, not name) and indexed the
+    # dataset's real free-text column. If the LLM picks a different one
+    # for semantic mode, honouring it means re-embedding the whole table
+    # inside this request (minutes on a laptop -> looks like a hang), and
+    # often over a worse column (e.g. a mislabelled "description" that
+    # really holds "69% off" badges). Use the indexed column instead.
+    if text_column and plan["mode"] in {"semantic", "both"} and plan["semantic_text_column"] != text_column:
+        logger.info(f"Using indexed text column '{text_column}' instead of planner's "
+                    f"'{plan['semantic_text_column']}' for semantic search")
+        plan = {**plan, "semantic_text_column": text_column}
     logger.info(f"Request planned as '{plan['mode']}': {user_request}")
 
     results, warnings = run_query(
@@ -76,7 +87,11 @@ def handle_request(user_request: str, gold_df: pd.DataFrame, table_name: str | N
         "filter" in w.lower() for w in warnings)
     queried_columns = _referenced_columns(plan, gold_df)
     analysis = run_analysis(results, total_record_count=len(gold_df), filter_applied=filter_applied,
-                            warnings=warnings, queried_columns=queried_columns)
+                            warnings=warnings, queried_columns=queried_columns,
+                            matched_rows=results.attrs.get("matched_rows"),
+                            aggregated=results.attrs.get("aggregated", False),
+                            passage_column=plan.get("semantic_text_column")
+                            if plan["mode"] in {"semantic", "both"} else None)
     summary = generate_report(user_request, analysis)
 
     return {

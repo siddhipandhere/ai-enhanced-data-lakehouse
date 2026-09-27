@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from agents.orchestrator import handle_request
 from auth.dependencies import get_current_user
 from auth.models import User
-from medallion.gold import COMBINED_TABLE_SENTINEL, find_combinable_datasets, resolve_dataset
+from medallion.gold import (COMBINED_TABLE_SENTINEL, combined_text_column, find_combinable_datasets,
+                           resolve_dataset, vector_index_key)
 from pipeline import registry
 from sql import query_engine
 
@@ -29,7 +30,8 @@ def generate_report(req: ReportRequest, current_user: User = Depends(get_current
         if not find_combinable_datasets(current_user.username):
             raise HTTPException(
                 status_code=404, detail="No datasets are currently eligible to combine")
-        original_name = f"All datasets (combined)"
+        original_name = "All datasets (combined)"
+        text_column = combined_text_column(current_user.username)
     else:
         entry = registry.get_dataset(req.table_name)
         if not entry or entry.get("uploaded_by") != current_user.username:
@@ -38,9 +40,15 @@ def generate_report(req: ReportRequest, current_user: User = Depends(get_current
             raise HTTPException(
                 status_code=409, detail=f"Dataset not ready yet (gold_status={entry.get('gold_status')})")
         original_name = entry.get("original_name")
+        text_column = entry.get("text_column") if entry.get("vector_status") == "ready" else None
+
+    if not req.question.strip():
+        raise HTTPException(status_code=422, detail="Question is empty")
 
     df = resolve_dataset(req.table_name, current_user.username)
-    result = handle_request(req.question, df, table_name=req.table_name)
+    result = handle_request(req.question, df,
+                            table_name=vector_index_key(req.table_name, current_user.username),
+                            text_column=text_column)
 
     # Keep result rows out of the persisted history (can be large/stale);
     # store the plan + summary + stats, which is what a report list needs.
@@ -55,6 +63,7 @@ def generate_report(req: ReportRequest, current_user: User = Depends(get_current
     })
     registry.record_query(current_user.username)
 
+    shown = query_engine.image_columns_first(result["results"].head(50))
     return {
         "id": saved["id"],
         "table_name": req.table_name,
@@ -62,6 +71,6 @@ def generate_report(req: ReportRequest, current_user: User = Depends(get_current
         "plan": result["plan"],
         "summary": result["summary"],
         "analysis": result["analysis"],
-        "rows": query_engine.to_json_safe_records(result["results"].head(50)),
-        "columns": list(result["results"].columns),
+        "rows": query_engine.to_json_safe_records(shown),
+        "columns": list(shown.columns),
     }

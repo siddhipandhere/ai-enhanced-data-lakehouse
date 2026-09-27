@@ -18,46 +18,90 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import config
+from utils.logger import get_logger
+
+logger = get_logger("registry")
 
 REGISTRY_PATH = config.DATA_ROOT / "_registry.json"
-_lock = threading.Lock()
+BACKUP_PATH = config.DATA_ROOT / "_registry.json.bak"
+# Re-entrant: readers take the lock too now, and some writers call readers.
+_lock = threading.RLock()
+
+STAGES = ("bronze_status", "silver_status", "gold_status", "vector_status")
 
 _EMPTY = {"datasets": {}, "reports": [], "query_counts": {}}
 
 
-def _read() -> dict:
-    if not REGISTRY_PATH.exists():
-        return {"datasets": {}, "reports": [], "query_counts": {}}
-    try:
-        with open(REGISTRY_PATH) as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {"datasets": {}, "reports": [], "query_counts": {}}
+def _load(path: Path) -> dict:
+    with open(path) as f:
+        data = json.load(f)
     data.setdefault("datasets", {})
     data.setdefault("reports", [])
     data.setdefault("query_counts", {})
     return data
 
 
+def _read() -> dict:
+    """Reads the registry. On a corrupt file, falls back to the last good
+    backup instead of returning an EMPTY registry -- the old behaviour,
+    where the very next write then permanently wiped every dataset entry."""
+    if not REGISTRY_PATH.exists():
+        return {"datasets": {}, "reports": [], "query_counts": {}}
+    try:
+        return _load(REGISTRY_PATH)
+    except (json.JSONDecodeError, OSError) as e:
+        if BACKUP_PATH.exists():
+            try:
+                logger.error(f"Registry unreadable ({e}); using backup {BACKUP_PATH.name}")
+                return _load(BACKUP_PATH)
+            except (json.JSONDecodeError, OSError):
+                pass
+        raise RuntimeError(f"Registry file {REGISTRY_PATH} is unreadable and no valid backup exists: {e}")
+
+
 def _write(data: dict) -> None:
     tmp = REGISTRY_PATH.with_suffix(".json.tmp")
     with open(tmp, "w") as f:
         json.dump(data, f, default=str, indent=2)
-    os.replace(tmp, REGISTRY_PATH)
+    if REGISTRY_PATH.exists():
+        try:
+            shutil.copyfile(REGISTRY_PATH, BACKUP_PATH)
+        except OSError:
+            pass
+    # On Windows os.replace raises PermissionError if another thread or an
+    # antivirus/indexer has the file open at that instant. Unhandled, that
+    # exception escaped process_dataset() between stages and left the
+    # dataset showing "Running" forever. Retry briefly instead.
+    for attempt in range(20):
+        try:
+            os.replace(tmp, REGISTRY_PATH)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
 
 
-def upsert_dataset(table_name: str, **fields: Any) -> dict:
-    """Creates or updates a dataset's registry entry. Only the keys
-    passed in ``fields`` are touched; everything else already stored is
-    left as-is."""
+def upsert_dataset(table_name: str, create: bool = False, **fields: Any) -> dict | None:
+    """Updates a dataset's registry entry (only the keys in ``fields``).
+    Creates it only when ``create=True`` (the first write of a new upload).
+
+    Without that rule, a background job that finished AFTER its dataset
+    was deleted (e.g. a vector-index rebuild) re-created an empty ghost
+    entry that then showed up as "failed" with no name."""
     with _lock:
         data = _read()
+        if table_name not in data["datasets"] and not create:
+            logger.info(f"Ignoring update for deleted/unknown dataset '{table_name}': {list(fields)}")
+            return None
         entry = data["datasets"].setdefault(table_name, {
             "table_name": table_name,
             "created_at": datetime.now().isoformat(),
@@ -75,11 +119,13 @@ def upsert_dataset(table_name: str, **fields: Any) -> dict:
 
 
 def get_dataset(table_name: str) -> dict | None:
-    return _read()["datasets"].get(table_name)
+    with _lock:
+        return _read()["datasets"].get(table_name)
 
 
 def list_datasets(uploaded_by: str | None = None) -> list[dict]:
-    entries = list(_read()["datasets"].values())
+    with _lock:
+        entries = list(_read()["datasets"].values())
     if uploaded_by:
         entries = [e for e in entries if e.get("uploaded_by") == uploaded_by]
     return sorted(entries, key=lambda e: e.get("created_at", ""), reverse=True)
@@ -97,7 +143,8 @@ def add_report(entry: dict) -> dict:
 
 
 def list_reports(uploaded_by: str | None = None, limit: int = 50) -> list[dict]:
-    reports = _read()["reports"]
+    with _lock:
+        reports = _read()["reports"]
     if uploaded_by:
         reports = [r for r in reports if r.get("uploaded_by") == uploaded_by]
     return reports[:limit]
@@ -119,7 +166,45 @@ def record_query(uploaded_by: str) -> int:
 
 
 def get_query_count(uploaded_by: str) -> int:
-    return _read()["query_counts"].get(uploaded_by, 0)
+    with _lock:
+        return _read()["query_counts"].get(uploaded_by, 0)
+
+
+def recover_interrupted() -> list[str]:
+    """
+    Call once at server startup. Background pipeline jobs don't survive a
+    restart (uvicorn --reload restarts on every code save), so any stage
+    still marked "running"/"pending" at startup can never finish -- and
+    the Pipeline page showed it as "Running" forever. Marks the first
+    unfinished stage "failed" with an explanatory error and the later
+    ones "skipped", so the UI tells the truth and the Retry button can
+    re-run it.
+    """
+    fixed = []
+    with _lock:
+        data = _read()
+        for name, entry in data["datasets"].items():
+            if not any(entry.get(st) in ("running", "pending") for st in STAGES):
+                continue
+            first_bad = next((st for st in STAGES if entry.get(st) not in ("ready", "skipped")), None)
+            if first_bad is None or entry.get(first_bad) not in ("running", "pending"):
+                continue  # already failed earlier; nothing is actually stuck
+            entry[first_bad] = "failed"
+            if first_bad == "bronze_status":
+                entry["error"] = ("Upload was interrupted before the file was saved. "
+                                  "Delete this entry and upload the file again.")
+            else:
+                entry["error"] = (f"Interrupted: the server stopped during the "
+                                  f"{first_bad.replace('_status', '')} stage. Click Retry.")
+            for later in STAGES[STAGES.index(first_bad) + 1:]:
+                if entry.get(later) != "skipped":
+                    entry[later] = "pending"  # e.g. a stale 'ready' vector on an orphan entry
+            entry["updated_at"] = datetime.now().isoformat()
+            fixed.append(name)
+        if fixed:
+            _write(data)
+            logger.warning(f"Marked interrupted pipeline runs as failed: {fixed}")
+    return fixed
 
 
 def _dir_size_bytes(path: Path) -> int:
@@ -133,8 +218,8 @@ def _dir_size_bytes(path: Path) -> int:
 def storage_used_bytes(uploaded_by: str) -> int:
     """
     Real on-disk storage for this user's datasets — Bronze + Silver
-    Delta directories, the Gold parquet file, and (if this user
-    currently owns it) the shared FAISS vector store — instead of the
+    Delta directories, the Gold parquet file, and each dataset's own
+    FAISS index folder (plus their combined-view index) — instead of the
     old placeholder ``datasets.length * 3.2 MB`` estimate that had no
     relationship to actual data size.
     """
@@ -148,18 +233,11 @@ def storage_used_bytes(uploaded_by: str) -> int:
         total += _dir_size_bytes(config.SILVER_DIR / table_name)
         total += _dir_size_bytes(config.GOLD_DIR / f"{table_name}.parquet")
 
-    meta_path = config.VECTOR_STORE_DIR / "meta.json"
-    if meta_path.exists():
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-            if meta.get("table_name") in {e.get("table_name") for e in entries}:
-                total += _dir_size_bytes(config.VECTOR_STORE_DIR /
-                                         "index.faiss")
-                total += _dir_size_bytes(config.VECTOR_STORE_DIR /
-                                         "id_map.csv")
-        except (json.JSONDecodeError, OSError):
-            pass
+    from embeddings.vector_store import index_size_bytes  # lazy: avoids importing faiss at registry import
+    for e in entries:
+        if e.get("table_name"):
+            total += index_size_bytes(e["table_name"])
+    total += index_size_bytes(f"__all__{uploaded_by}")
 
     return total
 
@@ -170,23 +248,14 @@ def delete_dataset(table_name: str) -> bool:
     False if the dataset wasn't in the registry to begin with (caller
     decides whether that's a 404).
 
-    The FAISS vector index is shared, single-slot storage (see
-    embeddings/vector_store.py's META_PATH/INDEX_PATH -- there's one of
-    each, not one per dataset), so deleting a dataset that currently
-    owns that index leaves it pointing at data that no longer exists.
-    Rather than leave a dangling index, this clears it; the query/search
-    agents already rebuild it on demand (build_index_if_needed) the
-    next time it's actually needed, for whichever dataset is current.
+    Also removes the dataset's own vector-index folder, and the owner's
+    combined-view index (its contents depended on this dataset).
     """
-    import json
-    import shutil
-
-    import config
-
     with _lock:
         data = _read()
         if table_name not in data["datasets"]:
             return False
+        entry_owner = data["datasets"][table_name].get("uploaded_by")
         del data["datasets"][table_name]
         data["reports"] = [r for r in data["reports"]
                            if r.get("table_name") != table_name]
@@ -204,15 +273,10 @@ def delete_dataset(table_name: str) -> bool:
             else:
                 path.unlink(missing_ok=True)
 
-    meta_path = config.VECTOR_STORE_DIR / "meta.json"
-    if meta_path.exists():
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-            if meta.get("table_name") == table_name:
-                for name in ("index.faiss", "id_map.csv", "meta.json"):
-                    (config.VECTOR_STORE_DIR / name).unlink(missing_ok=True)
-        except (json.JSONDecodeError, OSError):
-            pass
+    from embeddings.vector_store import delete_index
+    delete_index(table_name)
+    # The combined view's contents change when a member dataset is deleted.
+    if entry_owner:
+        delete_index(f"__all__{entry_owner}")
 
     return True

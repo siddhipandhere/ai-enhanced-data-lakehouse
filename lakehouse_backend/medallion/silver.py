@@ -262,7 +262,11 @@ def clean_and_promote(bronze_path: str | Path, table_name: str | None = None,
              .whenNotMatchedInsertAll()
              .execute())
         else:
-            df.write.format("delta").mode("overwrite").save(str(dest_path))
+            # overwriteSchema: a re-run after a cleaning-logic change (e.g. a
+            # newly derived *_pct column) otherwise fails with a Delta
+            # schema-mismatch error instead of replacing the table.
+            (df.write.format("delta").mode("overwrite")
+             .option("overwriteSchema", "true").save(str(dest_path)))
     else:
         df.write.format("delta").mode("overwrite").save(str(dest_path))
 

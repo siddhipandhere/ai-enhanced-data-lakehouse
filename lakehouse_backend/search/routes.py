@@ -7,7 +7,8 @@ import config
 from auth.dependencies import get_current_user
 from auth.models import User
 from embeddings.vector_store import build_index_if_needed
-from medallion.gold import COMBINED_TABLE_SENTINEL, combined_text_column, resolve_dataset
+from medallion.gold import (COMBINED_TABLE_SENTINEL, combined_text_column, resolve_dataset,
+                           vector_index_key)
 from pipeline import registry
 from sql import query_engine
 
@@ -59,18 +60,25 @@ def semantic_search(req: SearchRequest, current_user: User = Depends(get_current
                 status_code=409, detail=f"Search index not ready yet (vector_status={entry.get('vector_status')})")
         text_column = entry["text_column"]
 
+    if not req.query.strip():
+        raise HTTPException(status_code=422, detail="Search text is empty")
+    top_k = max(1, min(req.top_k, 100))
+
     df = resolve_dataset(req.table_name, current_user.username)
-    # Cheap no-op if the index already matches this table/column/size.
+    index_key = vector_index_key(req.table_name, current_user.username)
+    # Each dataset has its own index now, so this is a cheap no-op unless
+    # the data changed (the first combined-view search does build one).
     build_index_if_needed(
         df, text_column=text_column,
-        id_column=config.JOIN_KEY, table_name=req.table_name,
+        id_column=config.JOIN_KEY, table_name=index_key,
     )
 
     try:
-        results = query_engine.semantic_query(df, req.query, top_k=req.top_k)
+        results = query_engine.semantic_query(df, req.query, top_k=top_k, table_name=index_key)
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
+    results = query_engine.image_columns_first(results)
     registry.record_query(current_user.username)
     return {
         "table_name": req.table_name,

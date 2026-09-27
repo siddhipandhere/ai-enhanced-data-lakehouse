@@ -19,8 +19,11 @@ passlib[bcrypt]
 bcrypt==4.0.1   # passlib 1.7.4 is incompatible with bcrypt>=4.1's internal API
 python-jose[cryptography]
 python-multipart
+email-validator # required by pydantic's EmailStr (used in auth schemas) -- not pulled in by pydantic itself
+python-dotenv   # loads GROQ_API_KEY etc. from lakehouse_backend/.env (see config.py)
 
 # --- Bulk / multi-format ingestion ---
 openpyxl        # structured: .xlsx
+xlrd            # structured: old Excel .xls (e.g. the Enron workbooks)
 lxml            # semi-structured: .xml
 pypdf           # unstructured: .pdf text extraction

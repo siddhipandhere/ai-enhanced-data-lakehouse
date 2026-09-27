@@ -14,21 +14,21 @@ This is the one LLM call the Orchestrator spends on understanding the
 request; the Report agent spends the second one summarizing the result.
 """
 
+import io
 import json
 import re
+import tokenize
 
 import pandas as pd
 from groq import Groq
 
 import config
 from utils.logger import get_logger
+from utils.media import is_bytes_column
 
 logger = get_logger("query_planner")
 
 _client = None
-
-_BANNED_SUBSTRINGS = ("import", "__", "exec", "eval",
-                      "lambda", "os.", "sys.", "open(", "subprocess")
 
 # Matches "<column> <comparison operator> <number>", e.g. "discount > 50".
 _NUMERIC_COMPARISON = re.compile(
@@ -72,6 +72,10 @@ Rules:
 - CRITICAL: for any question containing a number, percentage, or comparison word ("more than", "less than", "over", "under", "at least", "greater than", "%"), always prefer "sql" mode with a numeric filter_query over "semantic" mode -- even if a text column's name or values superficially relate to the question (e.g. a "discount" text column holding "69% off" cannot be numerically compared; if a numeric column for the same concept exists, such as "discount_pct", use that in filter_query instead). Semantic search ranks by meaning-similarity to the query text, not by numeric comparison, and can never correctly answer a threshold question -- using it for one produces results that look plausible but are not actually filtered by the number requested.
 - Only reference column names that appear in the schema above, exactly as spelled.
 - filter_query must be a valid pandas DataFrame.query() expression, or null if no filter applies.
+  Text filters are allowed and encouraged when the question names a value, e.g.
+  "brand == 'Puma'", "category in ['Clothing', 'Footwear']",
+  "title.str.contains('shirt', case=False, na=False)". Combine conditions with "and"/"or".
+  Never use "@", backticks, or any function other than .str.contains/.str.startswith/.str.endswith/.isna/.notna/.isin/.between.
 - If nothing in the schema clearly answers the question, set mode to "sql" and leave
   filter_query, group_by, and agg_column all null so the full table is returned.
 """
@@ -79,6 +83,8 @@ Rules:
 
 def _get_client() -> Groq:
     global _client
+    if not config.GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is not set (add it to lakehouse_backend/.env)")
     if _client is None:
         _client = Groq(api_key=config.GROQ_API_KEY)
     return _client
@@ -87,45 +93,111 @@ def _get_client() -> Groq:
 def _describe_schema(df: pd.DataFrame) -> str:
     lines = []
     for col in df.columns:
+        if is_bytes_column(df[col]):
+            # Image collection: its pictures are searchable by description (CLIP).
+            lines.append(f"- {col} (image: use it as semantic_text_column to find pictures by what they show)")
+            continue
         dtype = "numeric" if pd.api.types.is_numeric_dtype(df[col]) else "text"
         lines.append(f"- {col} ({dtype})")
     return "\n".join(lines)
 
 
-def _sample_rows(df: pd.DataFrame, n: int = 3) -> str:
+def _sample_rows(df: pd.DataFrame, n: int = 3, max_cell: int = 60) -> str:
+    """Sample rows for the prompt, with long cells truncated. A full product
+    description / JSON spec column per row can be thousands of characters,
+    which bloats every planning call without helping the model pick columns."""
     if df.empty:
         return "(no rows available)"
-    return df.head(n).to_string(index=False)
+    sample = df.head(n).copy()
+    for c in sample.columns:
+        if not pd.api.types.is_numeric_dtype(sample[c]):
+            sample[c] = sample[c].map(
+                lambda v: "<image>" if isinstance(v, (bytes, bytearray, memoryview))
+                else v if not isinstance(v, str) or len(v) <= max_cell else v[:max_cell] + "...")
+    return sample.to_string(index=False)
+
+
+_ALLOWED_KEYWORDS = {"and", "or", "not", "in", "is", "True", "False", "None"}
+# Only allowed directly after a "." -- e.g. title.str.contains('shirt')
+_ALLOWED_METHODS = {
+    "str", "contains", "startswith", "endswith", "lower", "upper", "strip",
+    "len", "isna", "isnull", "notna", "notnull", "isin", "between", "abs",
+    "dt", "year", "month", "day",
+}
+# Only allowed directly before a "=" -- e.g. .str.contains('x', case=False)
+_ALLOWED_KWARGS = {"case", "na", "regex", "inclusive"}
+_MAX_QUERY_LEN = 500
+
+
+def check_filter_query(filter_query: str | None, valid_columns: list[str]) -> tuple[str | None, str | None]:
+    """
+    Validates a pandas query() expression. Returns (query, None) if it's
+    safe, or (None, reason) if it was rejected.
+
+    Uses Python's own tokenizer instead of a regex over the raw text. The
+    old regex approach had two real bugs:
+
+    1. It treated words INSIDE string literals as identifiers, so any
+       text comparison -- brand == 'Nike', category == 'Clothing' -- was
+       rejected ("unknown identifier Nike") and the report silently ran
+       on the full, unfiltered table. It also rejected legitimate values
+       like 'Imported' because they contain the banned word "import".
+    2. It was only applied to the LLM's plan, never to the SQL Explorer's
+       raw user input -- where pandas' "@name" syntax could reach module
+       globals and run shell commands (e.g. "@os.system('...')").
+
+    Tokenizing separates real names from string contents, so literals can
+    contain anything, while names must be a real column, a boolean
+    keyword, or a whitelisted .str / .dt method.
+    """
+    if not filter_query or not filter_query.strip():
+        return None, None
+    filter_query = filter_query.strip()
+    if len(filter_query) > _MAX_QUERY_LEN:
+        return None, f"Query is longer than {_MAX_QUERY_LEN} characters"
+    if "`" in filter_query or "@" in filter_query:
+        return None, "Backticks and '@' variable references are not allowed"
+
+    try:
+        tokens = [t for t in tokenize.generate_tokens(io.StringIO(filter_query).readline)
+                  if t.type not in (tokenize.NEWLINE, tokenize.NL, tokenize.ENDMARKER,
+                                    tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT)]
+    except (tokenize.TokenError, IndentationError, SyntaxError) as e:
+        return None, f"Could not parse query: {e}"
+
+    valid = set(valid_columns)
+    for i, tok in enumerate(tokens):
+        prev = tokens[i - 1].string if i > 0 else ""
+        nxt = tokens[i + 1].string if i + 1 < len(tokens) else ""
+        if tok.type == tokenize.ERRORTOKEN:
+            return None, f"Unexpected character {tok.string!r}"
+        if tok.type == tokenize.STRING:
+            prefix = tok.string[: len(tok.string) - len(tok.string.lstrip("rRbBuUfF"))]
+            if "f" in prefix.lower():
+                return None, "f-strings are not allowed"
+            continue
+        if tok.type == tokenize.OP and tok.string in {";", ":=", "**", "lambda"}:
+            return None, f"Operator {tok.string!r} is not allowed"
+        if tok.type != tokenize.NAME:
+            continue
+        name = tok.string
+        if name in valid or name in _ALLOWED_KEYWORDS:
+            continue
+        if prev == "." and name in _ALLOWED_METHODS and "__" not in name:
+            continue
+        if nxt == "=" and name in _ALLOWED_KWARGS:
+            continue
+        return None, f"Unknown column or name '{name}'"
+
+    return filter_query, None
 
 
 def _sanitize_filter_query(filter_query: str | None, valid_columns: list[str]) -> str | None:
-    """
-    Defense in depth against a malicious or hallucinated filter_query,
-    since pandas.query() ultimately evaluates the expression. Rejects
-    anything containing code-execution primitives, and anything that
-    references a column not actually in the dataset.
-    """
-    if not filter_query:
-        return None
-
-    lowered = filter_query.lower()
-    if any(bad in lowered for bad in _BANNED_SUBSTRINGS):
-        logger.warning(
-            f"Rejected filter_query containing banned pattern: {filter_query}")
-        return None
-
-    # Every bare identifier in the expression must be either a known
-    # column or a Python/pandas keyword/operator — not an arbitrary name.
-    identifiers = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", filter_query))
-    allowed = set(valid_columns) | {"and", "or",
-                                    "not", "in", "True", "False", "None"}
-    unknown = identifiers - allowed
-    if unknown:
-        logger.warning(
-            f"Rejected filter_query referencing unknown identifiers {unknown}: {filter_query}")
-        return None
-
-    return filter_query
+    """Planner-side wrapper: drop an unsafe/hallucinated filter (and log why)."""
+    safe, reason = check_filter_query(filter_query, valid_columns)
+    if reason:
+        logger.warning(f"Rejected filter_query ({reason}): {filter_query}")
+    return safe
 
 
 def _fix_numeric_comparison_on_text_column(filter_query: str | None, df: pd.DataFrame) -> str | None:
@@ -164,6 +236,26 @@ def _fix_numeric_comparison_on_text_column(filter_query: str | None, df: pd.Data
     return _NUMERIC_COMPARISON.sub(_rewrite, filter_query)
 
 
+_BOOL_STRING_COMPARISON = re.compile(
+    r"([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=)\s*(['\"])(true|false)\3", re.IGNORECASE)
+
+
+def _fix_bool_string_literals(filter_query: str | None, df: pd.DataFrame) -> str | None:
+    """The LLM often writes is_sent == 'True' (a string). Against a real
+    true/false column that matches NOTHING, so the report comes back
+    empty. Rewrite to the boolean literal when the column is boolean."""
+    if not filter_query:
+        return filter_query
+
+    def _rewrite(m: re.Match) -> str:
+        col, op, _, word = m.groups()
+        if col in df.columns and pd.api.types.is_bool_dtype(df[col]):
+            return f"{col} {op} {word.capitalize()}"
+        return m.group(0)
+
+    return _BOOL_STRING_COMPARISON.sub(_rewrite, filter_query)
+
+
 def _fallback_percent_filter(question: str, df: pd.DataFrame) -> str | None:
     """
     Deterministic safety net for when the LLM returns NO filter_query at
@@ -192,13 +284,19 @@ def _fallback_percent_filter(question: str, df: pd.DataFrame) -> str | None:
     number = match.group(1)
 
     lowered = question.lower()
-    if any(w in lowered for w in _LTE_WORDS):
+
+    def _has(words: tuple[str, ...]) -> bool:
+        # Whole-word match: plain substring matching made "overall" count
+        # as "over" and "understand" as "under".
+        return any(re.search(rf"\b{re.escape(w)}\b", lowered) for w in words)
+
+    if _has(_LTE_WORDS):
         op = "<="
-    elif any(w in lowered for w in _GTE_WORDS):
+    elif _has(_GTE_WORDS):
         op = ">="
-    elif any(w in lowered for w in _LT_WORDS):
+    elif _has(_LT_WORDS):
         op = "<"
-    elif any(w in lowered for w in _GT_WORDS):
+    elif _has(_GT_WORDS):
         op = ">"
     else:
         return None
@@ -249,6 +347,7 @@ def _validate_plan(plan: dict, df: pd.DataFrame) -> dict:
     filter_query = _sanitize_filter_query(
         plan.get("filter_query"), valid_columns)
     filter_query = _fix_numeric_comparison_on_text_column(filter_query, df)
+    filter_query = _fix_bool_string_literals(filter_query, df)
 
     return {
         "mode": mode,
@@ -288,7 +387,10 @@ def build_plan(user_request: str, df: pd.DataFrame) -> dict:
                     question=user_request,
                 ),
             }],
-            max_tokens=800,
+            # Reasoning tokens count against this budget. At 800 the model
+            # sometimes ran out before emitting the JSON, the plan came back
+            # empty, and the report silently used the full unfiltered table.
+            max_tokens=2000,
             temperature=0,
             reasoning_effort="low",
         )
@@ -310,6 +412,9 @@ def build_plan(user_request: str, df: pd.DataFrame) -> dict:
         logger.info(f"Query plan: {validated}")
         return validated
     except Exception as e:
-        logger.error(
-            f"Query planning failed, falling back to full-table result: {e}")
-        return _fallback_plan(df)
+        logger.error(f"Query planning failed ({e}); using deterministic fallback plan")
+        plan = _fallback_plan(df)
+        # Even without the LLM, a plain "more than 50% discount" question
+        # can still be answered correctly instead of dumping the full table.
+        plan["filter_query"] = _fallback_percent_filter(user_request, df)
+        return plan

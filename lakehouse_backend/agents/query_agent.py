@@ -8,6 +8,7 @@ is either a no-op (mode/columns are null) or a safe, schema-valid call.
 
 import pandas as pd
 
+import config
 from sql import query_engine
 from embeddings.vector_store import build_index_if_needed
 from utils.logger import get_logger
@@ -28,6 +29,7 @@ def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) ->
     data as the real answer.
     """
     if df.empty:
+        df.attrs["matched_rows"], df.attrs["aggregated"] = 0, False
         return df, []
 
     result = df
@@ -44,12 +46,21 @@ def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) ->
                 f"the figures below are for the FULL unfiltered dataset, not the requested subset."
             )
 
+    matched_rows = len(result)  # rows that passed the filter, BEFORE grouping
+    aggregated = False
     if plan["group_by"] and plan["agg_column"] and plan["agg_func"]:
         try:
             result = query_engine.aggregate_query(
                 result, group_by=plan["group_by"],
                 agg_spec={plan["agg_column"]: plan["agg_func"]},
+                sort_desc=True,  # biggest group first: "which X has the most..." reads top-down
             )
+            aggregated = True
+            # "count of id per mailbox" leaves the counts in a column still
+            # called "id", which everything downstream treats as a row
+            # number (and hides) -- so the report never saw the counts.
+            if plan["agg_column"] == config.JOIN_KEY and config.JOIN_KEY in result.columns:
+                result = result.rename(columns={config.JOIN_KEY: "record_count"})
         except Exception as e:
             logger.warning(
                 f"Aggregation failed ({e}), returning pre-aggregation result")
@@ -58,24 +69,22 @@ def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) ->
 
     if plan["mode"] in {"semantic", "both"} and plan["semantic_text_column"]:
         try:
-            # table_name MUST be passed here, not left as the default None.
-            # The shared FAISS index's staleness check compares table_name
-            # to decide whether to rebuild; if every caller left it None,
-            # two different datasets with the same row_count and the same
-            # chosen text_column would silently reuse each other's index
-            # (None != None is False, so no rebuild fires) and return
-            # search results embedded from the wrong dataset entirely,
-            # with no error to signal it.
+            # table_name MUST be passed: each dataset has its own index
+            # folder (embeddings/vector_store.py). With the default None,
+            # every dataset would share one "_default" slot again.
             build_index_if_needed(
                 df, text_column=plan["semantic_text_column"], table_name=table_name)
             result = query_engine.semantic_query(
-                result, plan.get("_user_request", ""), top_k=plan["top_k"])
+                result, plan.get("_user_request", ""), top_k=plan["top_k"],
+                table_name=table_name, full_row_count=len(df))
         except Exception as e:
             logger.warning(
                 f"Semantic search failed ({e}), returning structured result only")
             warnings.append(
                 f"Semantic search failed ({e}); showing structured results only, not ranked by meaning.")
 
+    result.attrs["matched_rows"] = matched_rows
+    result.attrs["aggregated"] = aggregated
     return result, warnings
 
 

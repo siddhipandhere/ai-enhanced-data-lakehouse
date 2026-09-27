@@ -21,6 +21,7 @@ Responsibilities:
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -30,9 +31,10 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import input_file_name, lit
+from pyspark.sql.functions import col, lit, regexp_extract
 
 import config
+from ingestion.excel import ExcelReadError, read_workbook
 from spark_utils import get_spark
 from utils.logger import get_logger
 
@@ -70,12 +72,16 @@ def validate_file(file_path: Path) -> str:
     try:
         if ext == ".csv":
             pd.read_csv(file_path, nrows=5)
-        elif ext == ".xlsx":
-            pd.read_excel(file_path, nrows=5)
+        elif ext in (".xlsx", ".xls"):
+            if not read_workbook(file_path):
+                raise ValidationError("No sheet in this workbook contains a recognisable table "
+                                      "(a header row followed by data rows)")
         elif ext == ".parquet":
             pd.read_parquet(file_path).head(5)
         elif ext == ".json":
-            with open(file_path) as f:
+            # Explicit utf-8: on Windows open() defaults to cp1252 and fails
+            # on any non-ASCII product name (e.g. "₹", accented brands).
+            with open(file_path, encoding="utf-8-sig") as f:
                 json.load(f)
         elif ext == ".xml":
             import xml.etree.ElementTree as ET
@@ -89,6 +95,10 @@ def validate_file(file_path: Path) -> str:
         elif ext == ".txt":
             with open(file_path, encoding="utf-8", errors="strict") as f:
                 f.read(1024)
+    except ValidationError:
+        raise
+    except ExcelReadError as e:
+        raise ValidationError(str(e))
     except Exception as e:
         raise ValidationError(f"Structural validation failed: {e}")
 
@@ -204,14 +214,23 @@ def _pdf_to_spark(spark: SparkSession, pdf: pd.DataFrame, tmp_name: str) -> Data
 
 def _read_structured(spark: SparkSession, path: Path, ext: str) -> DataFrame:
     if ext == ".csv":
-        return spark.read.option("header", True).option("inferSchema", True).csv(str(path))
+        # escape='"': standard CSV (Excel, pandas, most exports) writes a quote
+        # inside a field as "" -- Spark's default escape character is a
+        # backslash, so any value containing a quote was split into shifted,
+        # broken rows (e.g. 3,651 emails read as 3,783 rows with columns out
+        # of place). multiLine lets quoted fields contain line breaks.
+        return (spark.read.option("header", True).option("inferSchema", True)
+                .option("multiLine", True).option("quote", '"').option("escape", '"')
+                .csv(str(path)))
     if ext == ".parquet":
         return spark.read.parquet(str(path))
-    if ext == ".xlsx":
-        # Spark has no native xlsx reader; pandas (openpyxl) does the parsing,
-        # then it's handed to Spark via the Parquet bridge (see _pdf_to_spark).
-        pdf = pd.read_excel(path)
-        return _pdf_to_spark(spark, pdf, path.stem)
+    if ext in (".xlsx", ".xls"):
+        # Normally handled sheet-by-sheet in ingest_files_bulk (see
+        # ingestion/excel.py); this path returns just the first usable sheet.
+        tables = read_workbook(path)
+        if not tables:
+            raise ValidationError(f"{path.name}: no usable table in any sheet")
+        return _pdf_to_spark(spark, tables[0][1], path.stem)
     raise ValidationError(f"No structured reader for '{ext}'")
 
 
@@ -226,7 +245,7 @@ def _read_semi_structured(spark: SparkSession, path: Path, ext: str) -> DataFram
             # the pandas path below then hits again). Log it so the actual
             # cause is visible instead of guessed at.
             logger.warning(f"{path.name}: Spark native JSON reader failed ({e}); falling back to pandas.json_normalize")
-            with open(path) as f:
+            with open(path, encoding="utf-8-sig") as f:
                 data = json.load(f)
             pdf = pd.json_normalize(data if isinstance(data, list) else [data])
             logger.info(f"{path.name}: {len(pdf.columns)} columns after json_normalize, before dedupe -> {list(pdf.columns)}")
@@ -243,12 +262,24 @@ def _read_semi_structured(spark: SparkSession, path: Path, ext: str) -> DataFram
     raise ValidationError(f"No semi-structured reader for '{ext}'")
 
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+
+
+def _read_image_collection(spark: SparkSession, paths: list[Path]) -> DataFrame:
+    """All images of one upload as ONE table, one row per picture
+    (path/modificationTime/length/content + original_name). A photo
+    collection is only searchable as a whole: one-table-per-image meant
+    six separate 1-row datasets that could never be searched together."""
+    df = spark.read.format("binaryFile").load([str(p) for p in paths])
+    # Spark reports paths as URIs (file:/C:/.../photo.jpg); keep the file name.
+    return df.withColumn("original_name", regexp_extract(col("path"), r"([^/\\]+)$", 1))
+
+
 def _read_unstructured(spark: SparkSession, path: Path, ext: str) -> DataFrame:
-    if ext in {".png", ".jpg", ".jpeg"}:
+    if ext in IMAGE_EXTENSIONS:
         # binaryFile source: real Spark DataFrame of path/length/modificationTime/content,
         # keeps large blobs out of the driver's Python heap.
-        df = spark.read.format("binaryFile").load(str(path))
-        return df.withColumn("original_name", lit(path.name))
+        return _read_image_collection(spark, [path])
     if ext == ".pdf":
         from pypdf import PdfReader
         reader = PdfReader(str(path))
@@ -300,7 +331,7 @@ class IngestResult:
 
 
 def _log_audit_entry(entry: dict) -> None:
-    with open(AUDIT_LOG_PATH, "a") as f:
+    with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, default=str) + "\n")
 
 
@@ -332,15 +363,49 @@ def ingest_files_bulk(file_paths: list[str | Path], uploaded_by: str = "system")
     staging_root = config.BRONZE_DIR / f"_staging_{batch_id}"
     staging_root.mkdir(parents=True, exist_ok=True)
 
+    safe_user = re.sub(r"[^A-Za-z0-9_]+", "_", uploaded_by).strip("_") or "user"
+
+    # Work units: (file, display name, stem for the table name, payload).
+    # payload is None (read the file normally), a pandas table (one sheet of
+    # a workbook -- a 3-sheet Excel file lands as 3 Bronze tables instead of
+    # losing sheets 2-3), or a list of image paths (every image in the batch
+    # lands as ONE image-collection table, so they can be searched together).
+    units: list[tuple[Path, str, str, pd.DataFrame | list[Path] | None]] = []
+    images = [fp for fp in file_paths if fp.suffix.lower() in IMAGE_EXTENSIONS]
+    if len(images) > 1:
+        shown = ", ".join(p.name for p in images[:3]) + (", ..." if len(images) > 3 else "")
+        units.append((images[0], f"{len(images)} images: {shown}", "images", images))
+        logger.info(f"{len(images)} images in this upload -> one image collection table")
+    for fp in file_paths:
+        if len(images) > 1 and fp in images:
+            continue
+        if fp.suffix.lower() in (".xlsx", ".xls"):
+            sheets = read_workbook(fp)
+            for sheet_name, table in sheets:
+                label = fp.name if len(sheets) == 1 else f"{fp.name} [{sheet_name}]"
+                stem = fp.stem if len(sheets) == 1 else f"{fp.stem}_{sheet_name}"
+                units.append((fp, label, stem, table))
+                logger.info(f"{fp.name}: sheet '{sheet_name}' -> {len(table)} rows x {table.shape[1]} columns")
+        else:
+            units.append((fp, fp.name, fp.stem, None))
+
     staged: list[IngestResult] = []
     try:
-        for fp in file_paths:
+        for fp, display_name, stem, table in units:
             ext = fp.suffix.lower()
             category = categories[fp]
-            table_name = f"{uploaded_by}_{fp.stem}_{uuid.uuid4().hex[:6]}"
+            # Spaces/brackets/non-ASCII in a filename ("sales data (1).csv")
+            # become part of folder names and URLs; keep the table name tame.
+            safe_stem = re.sub(r"[^A-Za-z0-9_]+", "_", stem).strip("_")[:60] or "file"
+            table_name = f"{safe_user}_{safe_stem}_{uuid.uuid4().hex[:6]}"
             staged_path = staging_root / table_name
 
-            df = _read_any(spark, fp, category, ext)
+            if isinstance(table, list):
+                df = _read_image_collection(spark, table)
+            elif table is not None:
+                df = _pdf_to_spark(spark, table, safe_stem)
+            else:
+                df = _read_any(spark, fp, category, ext)
             if category in ("structured", "semi_structured"):
                 df = _clean_tabular(df, fp.name)
             record_count = df.count()
@@ -348,7 +413,7 @@ def ingest_files_bulk(file_paths: list[str | Path], uploaded_by: str = "system")
             df.write.format("delta").mode("overwrite").save(str(staged_path))
 
             staged.append(IngestResult(
-                original_name=fp.name,
+                original_name=display_name,
                 category=category,
                 bronze_table=table_name,
                 bronze_path=config.BRONZE_DIR / table_name,

@@ -18,21 +18,42 @@ from pipeline.routes import router as pipeline_router
 from sql.routes import router as sql_router
 from search.routes import router as search_router
 from reports.routes import router as reports_router
+from pipeline.orchestration import verify_vector_indexes
+
+import config
+from pipeline import registry
+from utils.logger import get_logger
+
+logger = get_logger("main")
 
 # Creates users.db / the `users` table on first run if it doesn't exist yet.
 Base.metadata.create_all(bind=engine)
 
+# Background pipeline jobs die with the process (uvicorn --reload restarts
+# on every file save). Anything left "running" can never finish, so mark
+# it failed + retryable instead of showing "Running" forever.
+registry.recover_interrupted()
+verify_vector_indexes()
+
+if not config.GROQ_API_KEY:
+    logger.warning("GROQ_API_KEY is not set - Reports will use the rule-based planner/summary. "
+                   "Add GROQ_API_KEY=... to lakehouse_backend/.env")
+if config.JWT_SECRET_KEY.startswith("dev-secret"):
+    logger.warning(
+        "JWT_SECRET_KEY is the development default - set a random value in .env before a demo.")
+
 app = FastAPI(
     title="AI-Enhanced Data Lakehouse — API",
     description="Auth + bulk multi-format dataset upload, backed by a "
-                 "local-mode Spark/Delta Lake medallion pipeline (Option D).",
+    "local-mode Spark/Delta Lake medallion pipeline (Option D).",
     version="1.0.0",
 )
 
 # Streamlit/JS frontend runs on a different port during local dev.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to the actual frontend origin before deployment
+    # tighten to the actual frontend origin before deployment
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

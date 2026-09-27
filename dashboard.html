@@ -209,10 +209,16 @@ input,select{ font-family:var(--font-ui); }
 
 /* ---- stat row ---- */
 .stat-row{ display:flex; border:1px solid var(--border); border-radius: var(--radius); overflow:hidden; margin-bottom: 22px; background:var(--surface); flex-wrap:wrap; }
-.stat-cell{ flex:1; min-width:140px; padding: 16px 18px; border-right:1px solid var(--border); }
+.stat-cell{ flex:1; min-width:160px; padding: 16px 18px; border-right:1px solid var(--border); display:flex; align-items:flex-start; gap:12px; }
 .stat-cell:last-child{ border-right:none; }
+.stat-icon{ width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.stat-icon svg{ width:17px; height:17px; }
+.stat-icon.blue{ background:var(--blue-dim); color:var(--blue); }
+.stat-icon.green{ background:var(--green-dim); color:var(--green); }
+.stat-body{ min-width:0; }
 .stat-cell .slabel{ font-size:11.5px; color:var(--text-faint); margin-bottom:5px; }
 .stat-cell .sval{ font-size:21px; font-weight:700; letter-spacing:-0.01em; font-family: var(--font-mono); }
+.stat-cell .ssub{ margin-top:5px; min-height:16px; }
 
 /* ---- dataset table ---- */
 .card{ border:1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow:hidden; margin-bottom:22px; }
@@ -340,8 +346,9 @@ input,select{ font-family:var(--font-ui); }
 .stage-row.thead{ background:#FCFCFD; color:var(--text-faint); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
 .report-item{ border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px 16px; margin-bottom:12px; }
 .report-item .rq{ font-weight:600; font-size:13px; margin-bottom:4px; }
-.report-item .rs{ font-size:12.8px; color:var(--text-muted); line-height:1.5; }
+.report-item .rs{ font-size:12.8px; color:var(--text-muted); line-height:1.5; white-space:pre-line; }
 .report-item .rmeta{ font-size:11px; color:var(--text-faint); margin-top:8px; font-family:var(--font-mono); }
+  .result-thumb { display:block; max-width:120px; max-height:120px; border-radius:6px; border:1px solid rgba(128,128,128,.25); }
 </style>
 </head>
 <body>
@@ -419,10 +426,10 @@ input,select{ font-family:var(--font-ui); }
         <div class="topbar-title" id="topbarTitle">Overview</div>
       </div>
       <div class="topbar-actions">
-        <div class="topbar-search">
+        <div class="topbar-search" id="topbarSearch" role="button" tabindex="0" title="Open Semantic Search" style="cursor:pointer;">
           <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
           Search across your data…
-          <span class="kbd">⌘K</span>
+          <span class="kbd" id="topbarSearchKbd">Ctrl K</span>
         </div>
         <button class="btn btn-dark btn-sm" id="quickUploadBtn">
           <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
@@ -441,10 +448,35 @@ input,select{ font-family:var(--font-ui); }
         </div>
 
         <div class="stat-row">
-          <div class="stat-cell"><div class="slabel">Total records</div><div class="sval" id="statRecords">0</div></div>
-          <div class="stat-cell"><div class="slabel">Datasets</div><div class="sval" id="statDatasets">0</div></div>
-          <div class="stat-cell"><div class="slabel">Storage used</div><div class="sval" id="statStorage">0 MB</div></div>
-          <div class="stat-cell"><div class="slabel">AI queries</div><div class="sval" id="statQueries">0</div></div>
+          <div class="stat-cell">
+            <div class="stat-icon blue"><svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
+            <div class="stat-body">
+              <div class="slabel">Total records</div>
+              <div class="sval" id="statRecords" title="">0</div>
+            </div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-icon blue"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+            <div class="stat-body">
+              <div class="slabel">Datasets ready</div>
+              <div class="sval" id="statDatasets">0</div>
+              <div class="ssub" id="statDatasetsSub"></div>
+            </div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-icon blue"><svg class="icon" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/></svg></div>
+            <div class="stat-body">
+              <div class="slabel">Storage used</div>
+              <div class="sval" id="statStorage">0 MB</div>
+            </div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-icon green"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+            <div class="stat-body">
+              <div class="slabel">AI queries</div>
+              <div class="sval" id="statQueries">0</div>
+            </div>
+          </div>
         </div>
 
         <div class="card">
@@ -517,10 +549,10 @@ input,select{ font-family:var(--font-ui); }
             <h3>Drag and drop files here</h3>
             <p>or click to browse from your computer</p>
             <button class="btn btn-outline btn-sm" type="button" id="browseBtn">Choose files</button>
-            <input type="file" id="fileInput" multiple />
+            <input type="file" id="fileInput" multiple hidden accept=".csv,.xlsx,.xls,.json,.parquet,.xml,.pdf,.png,.jpg,.jpeg,.txt" />
             <div class="formats">
               <span class="format-badge">.csv</span>
-              <span class="format-badge">.xlsx</span>
+              <span class="format-badge">.xlsx / .xls</span>
               <span class="format-badge">.json</span>
               <span class="format-badge">.parquet</span>
               <span class="format-badge">.xml</span>
@@ -697,12 +729,10 @@ input,select{ font-family:var(--font-ui); }
   'use strict';
 
   /* ============================================================
-     FRONT END ONLY — running on mock local state for now.
-     When wiring to the real backend:
-       - GET  {API_BASE}/auth/me            -> populate userName/userEmail
-       - POST {API_BASE}/upload/bulk        -> multipart file list, auth'd
-     Replace mockUploadBulk() below with a real fetch() call, and
-     replace the mock user in loadUser() with a call to /auth/me.
+     Dashboard for the FastAPI backend (lakehouse_backend/main.py).
+     Every page talks to the real API: /auth/me, /datasets, /upload/bulk,
+     /pipeline/status, /sql/query, /search/query, /reports/generate.
+     The JWT from login.html is kept in localStorage as access_token.
   ============================================================ */
   var API_BASE = 'http://localhost:8000'; // FastAPI backend (uvicorn main:app --reload)
   var accessToken = localStorage.getItem('access_token');
@@ -743,6 +773,23 @@ input,select{ font-family:var(--font-ui); }
     el.addEventListener('click', function(){ goto(el.dataset.goto); });
   });
   document.getElementById('quickUploadBtn').addEventListener('click', function(){ goto('upload'); });
+
+  // Top-bar search box (and Ctrl+K / Cmd+K): jump to Semantic Search, ready to type.
+  function openSearch(){
+    goto('semantic');
+    setTimeout(function(){ var q = document.getElementById('searchQueryInput'); if (q) q.focus(); }, 50);
+  }
+  var topbarSearch = document.getElementById('topbarSearch');
+  topbarSearch.addEventListener('click', openSearch);
+  topbarSearch.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openSearch(); } });
+  if (/Mac|iPhone|iPad/.test(navigator.platform || '')) document.getElementById('topbarSearchKbd').textContent = '⌘K';
+  document.addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')){ e.preventDefault(); openSearch(); }
+  });
+  // Enter in the search box runs the search.
+  document.getElementById('searchQueryInput').addEventListener('keydown', function(e){
+    if (e.key === 'Enter'){ e.preventDefault(); document.getElementById('searchRunBtn').click(); }
+  });
 
   document.getElementById('navToggleMobile').addEventListener('click', function(){
     document.getElementById('sidebar').classList.toggle('open');
@@ -800,11 +847,14 @@ input,select{ font-family:var(--font-ui); }
     var rows = limit ? datasets.slice(0, limit) : datasets;
     var rowsHtml = rows.map(function(d){
       return '<div class="trow">' +
-        '<div class="tname">' + fileIconSvg() + '<span>' + d.name + '</span></div>' +
+        '<div class="tname">' + fileIconSvg() + '<span>' + escapeHtml(d.name) + '</span></div>' +
         '<div class="tmuted">' + (d.rows != null ? d.rows.toLocaleString() : '—') + '</div>' +
         '<div class="tmuted">' + (d.category || '—') + '</div>' +
         '<div>' + chipForStatus(d.status) + '</div>' +
-        '<div class="trow-actions"><button class="btn btn-ghost btn-sm" data-view-table="' + d.table_name + '">View</button><button class="btn btn-ghost btn-sm btn-danger" data-delete-table="' + d.table_name + '" data-delete-name="' + d.name + '">Delete</button></div>' +
+        '<div class="trow-actions"><button class="btn btn-ghost btn-sm" data-view-table="' + escapeHtml(d.table_name) + '">View</button>' +
+          // The combined view is virtual (built from the real datasets) -- deleting it 404'd.
+          (isCombined(d) ? '' : '<button class="btn btn-ghost btn-sm btn-danger" data-delete-table="' + escapeHtml(d.table_name) + '" data-delete-name="' + escapeHtml(d.name) + '">Delete</button>') +
+        '</div>' +
       '</div>';
     }).join('');
 
@@ -853,10 +903,48 @@ input,select{ font-family:var(--font-ui); }
     return mb.toFixed(1) + ' MB';
   }
 
+  // Stat-tile values stay readable once a dataset (or a combined one)
+  // pushes record counts into six figures -- "1,284,000" is a wall of
+  // digits to scan at a glance, "1.28M" reads instantly. Below 100,000
+  // the plain comma-formatted number is just as scannable and more
+  // exact, so this only kicks in where compacting actually helps.
+  function formatCompactNumber(n){
+    n = n || 0;
+    if (n < 100000) return n.toLocaleString();
+    if (n < 1000000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+  }
+
+  // The backend adds a synthetic "All datasets (combined)" entry whose
+  // record_count is the SUM of its member datasets. Counting it in the KPIs
+  // double-counted those records and showed one extra "dataset".
+  function isCombined(d){ return d.table_name === '__all__' || d.category === 'combined'; }
+  function realDatasets(){ return datasets.filter(function(d){ return !isCombined(d); }); }
+
   function renderStats(){
-    var totalRows = datasets.reduce(function(sum, d){ return sum + (d.rows || 0); }, 0);
-    document.getElementById('statRecords').textContent = totalRows.toLocaleString();
-    document.getElementById('statDatasets').textContent = datasets.length;
+    var real = realDatasets();
+    var totalRows = real.reduce(function(sum, d){ return sum + (d.rows || 0); }, 0);
+    var recordsEl = document.getElementById('statRecords');
+    recordsEl.textContent = formatCompactNumber(totalRows);
+    recordsEl.title = totalRows.toLocaleString() + ' records'; // exact count on hover once compacted
+
+    // "Datasets" used to just be a raw count -- every field it needs
+    // (status: 'ready' | 'processing' | 'failed', computed server-side
+    // in datasets/routes._overall_status) is already sitting in the
+    // `datasets` array loaded for the table above, so this is a richer
+    // KPI for free: how many are actually usable right now, and a
+    // status-colored callout (never color alone -- same chip + label
+    // pattern already used for per-dataset status elsewhere) when
+    // something needs attention instead of a number that hides it.
+    var ready = real.filter(function(d){ return d.status === 'ready'; }).length;
+    var failed = real.filter(function(d){ return d.status === 'failed'; }).length;
+    var processing = real.length - ready - failed;
+    document.getElementById('statDatasets').textContent = real.length ? (ready + ' / ' + real.length) : '0';
+    var sub = document.getElementById('statDatasetsSub');
+    if (failed > 0) sub.innerHTML = '<span class="chip chip-red"><span class="d"></span>' + failed + ' failed</span>';
+    else if (processing > 0) sub.innerHTML = '<span class="chip chip-amber"><span class="d"></span>' + processing + ' processing</span>';
+    else if (real.length) sub.innerHTML = '<span class="chip chip-green"><span class="d"></span>All ready</span>';
+    else sub.innerHTML = '';
 
     // Real numbers from GET /datasets/stats (actual on-disk bytes +
     // actual query count) instead of the old placeholder
@@ -869,7 +957,7 @@ input,select{ font-family:var(--font-ui); }
       })
       .then(function(stats){
         document.getElementById('statStorage').textContent = formatBytes(stats.storage_bytes);
-        document.getElementById('statQueries').textContent = (stats.ai_queries || 0).toLocaleString();
+        document.getElementById('statQueries').textContent = formatCompactNumber(stats.ai_queries || 0);
       })
       .catch(function(){ /* leave last-known values on screen */ });
   }
@@ -878,7 +966,7 @@ input,select{ font-family:var(--font-ui); }
     if (!selectEl) return;
     var current = selectEl.value;
     selectEl.innerHTML = '<option value="">' + placeholder + '</option>' +
-      list.map(function(d){ return '<option value="' + d.table_name + '">' + d.name + '</option>'; }).join('');
+      list.map(function(d){ return '<option value="' + escapeHtml(d.table_name) + '">' + escapeHtml(d.name) + '</option>'; }).join('');
     if (list.some(function(d){ return d.table_name === current; })) selectEl.value = current;
   }
 
@@ -970,9 +1058,9 @@ input,select{ font-family:var(--font-ui); }
     var emailEl = document.getElementById('userEmail');
     document.getElementById('settingsUserName').textContent = nameEl ? nameEl.textContent : '—';
     document.getElementById('settingsUserEmail').textContent = emailEl ? emailEl.textContent : '—';
-    document.getElementById('settingsDatasetCount').textContent = datasets.length;
+    document.getElementById('settingsDatasetCount').textContent = realDatasets().length;
     document.getElementById('settingsRecordCount').textContent =
-      datasets.reduce(function(sum, d){ return sum + (d.rows || 0); }, 0).toLocaleString();
+      realDatasets().reduce(function(sum, d){ return sum + (d.rows || 0); }, 0).toLocaleString();
     document.getElementById('settingsBackendUrl').textContent = API_BASE;
   }
 
@@ -982,11 +1070,12 @@ input,select{ font-family:var(--font-ui); }
   var settingsDeleteAllBtn = document.getElementById('settingsDeleteAllBtn');
   if (settingsDeleteAllBtn) {
     settingsDeleteAllBtn.addEventListener('click', function(){
-      if (!datasets.length) { alert('No datasets to delete.'); return; }
-      if (!confirm('Delete all ' + datasets.length + ' dataset(s)? This cannot be undone.')) return;
+      var toDelete = realDatasets();
+      if (!toDelete.length) { alert('No datasets to delete.'); return; }
+      if (!confirm('Delete all ' + toDelete.length + ' dataset(s)? This cannot be undone.')) return;
       settingsDeleteAllBtn.disabled = true;
       settingsDeleteAllBtn.textContent = 'Deleting…';
-      var deletions = datasets.map(function(d){
+      var deletions = toDelete.map(function(d){
         return fetch(API_BASE + '/datasets/' + encodeURIComponent(d.table_name), {
           method: 'DELETE',
           headers: authHeaders()
@@ -1067,7 +1156,7 @@ input,select{ font-family:var(--font-ui); }
       // error, just quietly wrong data (e.g. "Clothing" becomes "28971").
       // Any other present column works fine as the count target.
       var countTargetCol = columns.find(function(c){ return c !== categoryCol; }) || categoryCol;
-      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: countTargetCol, agg_func: 'count', limit: 15 })
+      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: countTargetCol, agg_func: 'count', limit: 15, sort_desc: true, track: false })
         .then(function(res){ renderOverviewBarChart('overviewCategoryChart', res, categoryCol, countTargetCol, 'Records'); })
         .catch(function(err){ console.error('Overview category chart failed:', err); });
 
@@ -1079,29 +1168,67 @@ input,select{ font-family:var(--font-ui); }
         return;
       }
       priceCanvas.querySelector('.sub').textContent = 'Avg. ' + priceCol + ' by ' + categoryCol;
-      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: priceCol, agg_func: 'mean', limit: 15 })
+      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: priceCol, agg_func: 'mean', limit: 15, sort_desc: true, track: false })
         .then(function(res){ renderOverviewBarChart('overviewPriceChart', res, categoryCol, priceCol, 'Avg. ' + priceCol); })
         .catch(function(err){ console.error('Overview price chart failed:', err); });
     });
   }
 
-  function renderOverviewBarChart(canvasId, queryResult, groupCol, valueCol, label){
-    var rows = queryResult.rows || [];
+  // Draws each bar's actual value just past its end. Without this, a
+  // chart where one category dominates (e.g. "Clothing and Accessories"
+  // at ~29,000 next to others near-zero on the same linear scale)
+  // leaves the small bars' real values impossible to read without
+  // hovering one at a time -- the story ("how much smaller are the
+  // others, exactly") is exactly what's illegible by default.
+  function overviewValueLabelPlugin(formatValue){
+    return {
+      id: 'overviewValueLabels',
+      afterDatasetsDraw: function(chart){
+        var ctx = chart.ctx;
+        var meta = chart.getDatasetMeta(0);
+        ctx.save();
+        ctx.fillStyle = '#374151';
+        ctx.font = '600 12px Inter, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        meta.data.forEach(function(bar, i){
+          var value = chart.data.datasets[0].data[i];
+          ctx.fillText(formatValue(value), bar.x + 8, bar.y);
+        });
+        ctx.restore();
+      }
+    };
+  }
+
+  function renderOverviewBarChart(canvasId, queryResult, groupCol, valueCol, label, formatValue){
+    var rows = (queryResult.rows || []).slice()
+      // Ranked, not alphabetical -- "compare magnitude" reads as a
+      // ranking, and the previous alphabetical order buried the actual
+      // story (one category dwarfing the rest) in an arbitrary sequence.
+      .sort(function(a, b){ return (b[valueCol] || 0) - (a[valueCol] || 0); });
     var labels = rows.map(function(r){ return String(r[groupCol]); });
     var values = rows.map(function(r){ return r[valueCol]; });
     var ctx = document.getElementById(canvasId).getContext('2d');
+    formatValue = formatValue || function(v){ return Math.round(v).toLocaleString(); };
 
     var existing = canvasId === 'overviewCategoryChart' ? overviewCategoryChartInstance : overviewPriceChartInstance;
     if (existing) existing.destroy();
 
     var chart = new Chart(ctx, {
       type: 'bar',
-      data: { labels: labels, datasets: [{ label: label, data: values, backgroundColor: '#6366f1' }] },
+      data: { labels: labels, datasets: [{ label: label, data: values, backgroundColor: '#2563EB', borderRadius: 4, maxBarThickness: 28 }] },
       options: {
+        indexAxis: 'y', // horizontal: long category names (e.g. "Bags, Wallets & Belts")
+                        // read on one line instead of rotating/wrapping and colliding
         responsive: true,
+        layout: { padding: { right: 56 } }, // room for the value label past the longest bar
         plugins: { legend: { display: false } },
-        scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } } }
-      }
+        scales: {
+          x: { beginAtZero: true, ticks: { callback: function(v){ return v.toLocaleString(); } } },
+          y: { grid: { display: false } }
+        }
+      },
+      plugins: [overviewValueLabelPlugin(formatValue)]
     });
 
     if (canvasId === 'overviewCategoryChart') overviewCategoryChartInstance = chart;
@@ -1122,7 +1249,12 @@ input,select{ font-family:var(--font-ui); }
 
   var queuedFiles = []; // { file, id, status }
 
-  function formatBytes(bytes){
+  // Named distinctly from the KPI row's formatBytes() (per-dataset total,
+  // with GB support) further up this same script scope -- both were
+  // named formatBytes() before, which meant this one (declared second)
+  // silently won for BOTH call sites, and the "Storage used" KPI was
+  // quietly missing GB formatting and its zero-value guard the whole time.
+  function formatFileSize(bytes){
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
     return (bytes/(1024*1024)).toFixed(1) + ' MB';
@@ -1137,8 +1269,8 @@ input,select{ font-family:var(--font-ui); }
       return '<div class="queue-item" data-id="' + qf.id + '">' +
         '<div class="qicon">' + extIcon() + '</div>' +
         '<div class="qmeta">' +
-          '<div class="qname">' + qf.file.name + '</div>' +
-          '<div class="qsize">' + formatBytes(qf.file.size) + '</div>' +
+          '<div class="qname">' + escapeHtml(qf.file.name) + '</div>' +
+          '<div class="qsize">' + formatFileSize(qf.file.size) + '</div>' +
           (qf.status === 'uploading' ? '<div class="progress-bar"><div class="fill" style="width:' + qf.progress + '%"></div></div>' : '') +
         '</div>' +
         '<div class="qstatus">' + chipForStatus(qf.status === 'uploading' ? 'processing' : qf.status) + '</div>' +
@@ -1236,6 +1368,9 @@ input,select{ font-family:var(--font-ui); }
         renderQueue();
         updateFooter();
         loadDatasets();
+        // Silver -> Gold -> index keeps running in the background after the
+        // upload returns; start polling so statuses update by themselves.
+        setTimeout(loadPipelineStatus, 1500);
       })
       .catch(function(err){
         clearInterval(progressTimer);
@@ -1260,12 +1395,25 @@ input,select{ font-family:var(--font-ui); }
     });
   }
 
+  // Image collections come back with a small JPEG thumbnail (data URI) in
+  // the picture column. Only a strict base64 image data URI is rendered as
+  // <img>; every other value is escaped text as before.
+  var THUMB_RE = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+\/=]+$/;
+  function cellHtml(v){
+    if (typeof v === 'string' && v.length < 400000 && THUMB_RE.test(v)){
+      return '<img class="result-thumb" src="' + v + '" alt="image" loading="lazy">';
+    }
+    // 0.5686861276626587 -> 0.5687 (whole numbers are left as they are)
+    if (typeof v === 'number' && isFinite(v) && !Number.isInteger(v)) return escapeHtml(String(Number(v.toFixed(4))));
+    return escapeHtml(v);
+  }
+
   function resultTableHtml(columns, rows, totalCount, truncated){
     if (!rows || !rows.length) return '<div class="inline-msg">No rows returned.</div>';
     var cols = columns && columns.length ? columns : Object.keys(rows[0]);
     var thead = '<tr>' + cols.map(function(c){ return '<th>' + escapeHtml(c) + '</th>'; }).join('') + '</tr>';
     var tbody = rows.map(function(r){
-      return '<tr>' + cols.map(function(c){ return '<td>' + escapeHtml(r[c]) + '</td>'; }).join('') + '</tr>';
+      return '<tr>' + cols.map(function(c){ return '<td>' + cellHtml(r[c]) + '</td>'; }).join('') + '</tr>';
     }).join('');
     var count = totalCount != null ? totalCount : rows.length;
     var meta = '<div class="result-meta">' + count.toLocaleString() + ' row' + (count === 1 ? '' : 's') +
@@ -1298,6 +1446,8 @@ input,select{ font-family:var(--font-ui); }
     return '<span class="chip chip-blue"><span class="d"></span>Pending</span>';
   }
 
+  var pipelinePollTimer = null;
+
   function loadPipelineStatus(){
     fetch(API_BASE + '/pipeline/status', { headers: authHeaders() })
       .then(function(res){
@@ -1310,16 +1460,50 @@ input,select{ font-family:var(--font-ui); }
         var rows = data.datasets || [];
         tableEl.querySelectorAll('.stage-row:not(.thead)').forEach(function(r){ r.remove(); });
         document.getElementById('pipelineEmpty').style.display = rows.length ? 'none' : 'block';
+        var anyActive = false;
         var html = rows.map(function(d){
+          var stages = [d.stages.bronze, d.stages.silver, d.stages.gold, d.stages.vector];
+          var failed = stages.indexOf('failed') !== -1;
+          if (stages.indexOf('running') !== -1 || (!failed && stages.indexOf('pending') !== -1)) anyActive = true;
+          var extra = '';
+          // What the Silver refinement actually did to this dataset (parsed
+          // raw emails, NaN text -> numbers, duplicates removed...).
+          if (d.notes && d.notes.length && !failed) {
+            extra += '<div class="tmuted" style="grid-column:1/-1;font-size:11.5px;padding:0 0 6px 30px;color:var(--green);">' +
+              d.notes.map(function(n){ return '✓ ' + escapeHtml(n); }).join('<br>') + '</div>';
+          }
+          if (failed || d.error) {
+            extra += '<div class="tmuted" style="grid-column:1/-1;font-size:12px;padding:2px 0 8px 30px;">' +
+              (d.error ? escapeHtml(d.error) + ' ' : '') +
+              (failed ? '<button class="btn btn-ghost btn-sm" data-retry-table="' + escapeHtml(d.table_name) + '">Retry</button>' : '') +
+              '</div>';
+          }
           return '<div class="stage-row">' +
             '<div class="tname">' + fileIconSvg() + '<span>' + escapeHtml(d.original_name) + '</span></div>' +
             '<div>' + stageChip(d.stages.bronze) + '</div>' +
             '<div>' + stageChip(d.stages.silver) + '</div>' +
             '<div>' + stageChip(d.stages.gold) + '</div>' +
             '<div>' + stageChip(d.stages.vector) + '</div>' +
+            extra +
           '</div>';
         }).join('');
         tableEl.insertAdjacentHTML('beforeend', html);
+        tableEl.querySelectorAll('[data-retry-table]').forEach(function(btn){
+          btn.addEventListener('click', function(){
+            btn.disabled = true; btn.textContent = 'Retrying…';
+            postJson('/pipeline/' + encodeURIComponent(btn.dataset.retryTable) + '/retry', {})
+              .then(function(){ loadPipelineStatus(); })
+              .catch(function(err){
+                if (err === 'unauthorized') return;
+                alert(typeof err === 'string' ? err : 'Retry failed.');
+                btn.disabled = false; btn.textContent = 'Retry';
+              });
+          });
+        });
+        // Poll every 4s while anything is running, so "Running" turns into
+        // Ready/Failed on its own instead of needing manual refreshes.
+        clearTimeout(pipelinePollTimer);
+        if (anyActive) pipelinePollTimer = setTimeout(function(){ loadPipelineStatus(); loadDatasets(); }, 4000);
       })
       .catch(function(err){ if (err !== 'unauthorized') console.error(err); });
   }

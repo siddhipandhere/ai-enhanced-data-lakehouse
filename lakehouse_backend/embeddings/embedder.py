@@ -68,3 +68,61 @@ def embed_texts(texts: list[str], batch_size: int = 256) -> np.ndarray:
 
 def embed_query(text: str) -> np.ndarray:
     return embed_texts([text])[0]
+
+
+# --- Image search (CLIP) ----------------------------------------------------
+# CLIP puts pictures and sentences into the SAME vector space, so an image
+# collection can be searched by typing a description ("an office tower",
+# "a stock price chart") -- no captions or OCR needed. It's a separate,
+# larger model (~600 MB, downloaded once) loaded only when an image
+# collection is indexed or searched.
+
+_clip_model = None
+
+
+def get_clip_model():
+    from sentence_transformers import SentenceTransformer
+    global _clip_model
+    if _clip_model is None:
+        logger.info(f"Loading image search model: {config.CLIP_MODEL_NAME}")
+        try:
+            _clip_model = SentenceTransformer(config.CLIP_MODEL_NAME, local_files_only=True)
+        except Exception:
+            logger.info("Image search model not cached locally yet -- downloading (one-time, ~600 MB)")
+            _clip_model = SentenceTransformer(config.CLIP_MODEL_NAME)
+    return _clip_model
+
+
+def _normalize(vectors: np.ndarray) -> np.ndarray:
+    vectors = np.asarray(vectors, dtype="float32")
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1e-9
+    return (vectors / norms).astype("float32")
+
+
+def embed_images(images: list, batch_size: int = 16) -> np.ndarray:
+    """PIL images (None for unreadable ones) -> normalized CLIP vectors.
+    An unreadable image gets an all-zero vector, so it scores 0 and simply
+    never ranks, instead of failing the whole index build."""
+    model = get_clip_model()
+    readable = [(i, im) for i, im in enumerate(images) if im is not None]
+    dim = None
+    parts = []
+    for start in range(0, len(readable), batch_size):
+        chunk = [im for _, im in readable[start:start + batch_size]]
+        parts.append(model.encode(chunk, convert_to_numpy=True, show_progress_bar=False))
+    if parts:
+        encoded = _normalize(np.vstack(parts))
+        dim = encoded.shape[1]
+    else:
+        dim = model.get_sentence_embedding_dimension() or 512
+    out = np.zeros((len(images), dim), dtype="float32")
+    for row, (i, _) in enumerate(readable):
+        out[i] = encoded[row]
+    return out
+
+
+def embed_clip_text(text: str) -> np.ndarray:
+    """A search phrase -> CLIP vector, comparable with embed_images() output."""
+    model = get_clip_model()
+    return _normalize(model.encode([text], convert_to_numpy=True, show_progress_bar=False))[0]
