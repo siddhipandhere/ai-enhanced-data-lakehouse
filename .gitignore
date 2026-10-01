@@ -21,4 +21,4 @@ lakehouse_backend/**/delta_log/
 .vscode/
 .idea/
 
-*.zip
+*.ziphs_err_pid*.log
