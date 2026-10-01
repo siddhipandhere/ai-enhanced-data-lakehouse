@@ -232,6 +232,3 @@ def aggregate(df: pd.DataFrame, group_by: list[str], agg_spec: dict[str, str],
             sort_col, ascending=False, kind="stable").reset_index(drop=True)
     return result
 
-
-def clear_cache() -> None:
-    _QUERY_CACHE.clear()

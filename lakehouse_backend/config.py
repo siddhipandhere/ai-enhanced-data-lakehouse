@@ -54,7 +54,10 @@ SPARK_SHUFFLE_PARTITIONS = int(
 JWT_SECRET_KEY = os.getenv(
     "JWT_SECRET_KEY", "dev-secret-change-me-before-viva")
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+# Normal sign-in: token lasts this many minutes.
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES") or "60")
+# "Keep me signed in" ticked on the login page: token lasts this many days.
+REMEMBER_ME_EXPIRE_DAYS = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS") or "7")
 USERS_DB_PATH = DATA_ROOT / "users.db"
 
 # --- Embeddings / vector search ---

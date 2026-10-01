@@ -100,11 +100,3 @@ def get_spark() -> SparkSession:
     _spark = configure_spark_with_delta_pip(builder).getOrCreate()
     _spark.sparkContext.setLogLevel("WARN")
     return _spark
-
-
-def stop_spark() -> None:
-    """Stops the shared session. Mainly useful for tests / clean shutdown."""
-    global _spark
-    if _spark is not None:
-        _spark.stop()
-        _spark = None

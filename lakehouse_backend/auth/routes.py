@@ -8,6 +8,7 @@ from auth.dependencies import get_current_user
 from auth.models import User
 from auth.schemas import Token, UserCreate, UserLogin, UserOut
 from auth.security import create_access_token, hash_password, verify_password
+import config
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -39,8 +40,10 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = create_access_token(subject=user.username)
-    return Token(access_token=token)
+    minutes = (config.REMEMBER_ME_EXPIRE_DAYS * 24 * 60 if payload.remember_me
+               else config.ACCESS_TOKEN_EXPIRE_MINUTES)
+    token = create_access_token(subject=user.username, expires_minutes=minutes)
+    return Token(access_token=token, expires_in=minutes * 60)
 
 
 @router.get("/me", response_model=UserOut)

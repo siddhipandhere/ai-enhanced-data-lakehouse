@@ -153,12 +153,6 @@ def _kind_for(df: pd.DataFrame, column: str) -> str:
     return "image" if column in df.columns and is_bytes_column(df[column]) else "text"
 
 
-def index_kind(table_name: str | None) -> str | None:
-    """'image' (CLIP), 'text', or None if there's no index."""
-    meta = _read_meta(table_name)
-    return (meta.get("kind") or "text") if meta else None
-
-
 def has_index(table_name: str | None) -> bool:
     """True if this table has an index on disk (adopting a legacy
     single-slot index for it first, if that's where it lives)."""

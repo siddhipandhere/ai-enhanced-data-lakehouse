@@ -24,12 +24,12 @@ class UserOut(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+    # "Keep me signed in" on the login page -> longer-lived token
+    remember_me: bool = False
 
 
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    expires_in: int | None = None  # seconds until the token expires
 
-
-class TokenData(BaseModel):
-    username: str | None = None

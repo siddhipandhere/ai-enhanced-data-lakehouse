@@ -1,6 +1,5 @@
 pandas
 numpy
-scikit-learn
 pillow
 faiss-cpu
 sentence-transformers

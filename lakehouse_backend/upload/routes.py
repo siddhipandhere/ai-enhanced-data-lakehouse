@@ -70,6 +70,10 @@ async def upload_bulk(
                 saved_paths, uploaded_by=current_user.username)
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=str(e))
+        except Exception as e:
+            # An unhandled 500 skips CORSMiddleware, so the browser hides it
+            # and the dashboard reports "Could not reach the backend".
+            raise HTTPException(status_code=500, detail=f"Upload failed: {(str(e) or repr(e)).splitlines()[0][:300]}")
 
     for r in results:
         # Register every dataset NOW, before any background work starts.

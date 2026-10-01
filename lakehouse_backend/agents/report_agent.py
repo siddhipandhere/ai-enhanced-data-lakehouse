@@ -108,11 +108,9 @@ def _fallback_summary(analysis: dict) -> str:
         return "\n\n".join(parts)
 
     stats = analysis.get("queried_column_stats") or {}
-    lines = []
-    for col, s in stats.items():
-        if s.get("mean") is not None:
-            lines.append(f"{col}: min {_fmt(s.get('min'))}, median {_fmt(s.get('50%'))}, "
-                         f"mean {_fmt(s.get('mean'))}, max {_fmt(s.get('max'))}.")
+    lines = [f"{col}: min {_fmt(s.get('min'))}, median {_fmt(s.get('50%'))}, "
+             f"mean {_fmt(s.get('mean'))}, max {_fmt(s.get('max'))}."
+             for col, s in stats.items() if s.get("mean") is not None]
     if lines:
         parts.append(" ".join(lines))
 

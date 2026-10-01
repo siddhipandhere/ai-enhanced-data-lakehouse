@@ -34,7 +34,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, lit, regexp_extract
 
 import config
-from ingestion.excel import ExcelReadError, read_workbook
+from ingestion.excel import ExcelReadError, _column_name, read_workbook
 from spark_utils import get_spark
 from utils.logger import get_logger
 
@@ -120,9 +120,15 @@ def _dedupe_columns(pdf: pd.DataFrame) -> pd.DataFrame:
     nested JSON paths -- are exact-distinct to pandas/Parquet but collide
     the moment Spark reads the file back, raising COLUMN_ALREADY_EXISTS.
     """
+    pdf = pdf.copy()
+    pdf.columns = _dedupe_names(pdf.columns)
+    return pdf
+
+
+def _dedupe_names(names) -> list[str]:
     seen: dict[str, int] = {}
     new_cols = []
-    for c in pdf.columns:
+    for c in names:
         name = str(c)
         key = name.lower()
         if key not in seen:
@@ -131,9 +137,20 @@ def _dedupe_columns(pdf: pd.DataFrame) -> pd.DataFrame:
         else:
             seen[key] += 1
             new_cols.append(f"{name}__{seen[key]}")
-    pdf = pdf.copy()
-    pdf.columns = new_cols
-    return pdf
+    return new_cols
+
+
+DELTA_BANNED = re.compile(r"[ ,;{}()\n\t=]")
+
+
+def _delta_safe_columns(names) -> list[str]:
+    """Delta rejects ' ,;{}()\\n\\t=' in column names. Spark-native readers
+    (CSV, JSON) keep headers as-is, so "Price Date" reached the Delta write
+    and failed the whole batch. Only offending names are rewritten, with the
+    same snake_case rule the Excel reader uses ("Price Date" -> "price_date"),
+    so clean headers like "Message-ID" are left alone."""
+    return _dedupe_names(_column_name(n, i) if DELTA_BANNED.search(n) else n
+                         for i, n in enumerate(names))
 
 
 def _flatten_nested_objects(pdf: pd.DataFrame) -> pd.DataFrame:
@@ -354,9 +371,7 @@ def ingest_files_bulk(file_paths: list[str | Path], uploaded_by: str = "system")
 
     # Phase 1: validate everything up front. One bad file fails the whole
     # batch before any Spark write happens.
-    categories = {}
-    for fp in file_paths:
-        categories[fp] = validate_file(fp)
+    categories = {fp: validate_file(fp) for fp in file_paths}
 
     spark = get_spark()
     batch_id = f"{uploaded_by}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
@@ -408,6 +423,7 @@ def ingest_files_bulk(file_paths: list[str | Path], uploaded_by: str = "system")
                 df = _read_any(spark, fp, category, ext)
             if category in ("structured", "semi_structured"):
                 df = _clean_tabular(df, fp.name)
+            df = df.toDF(*_delta_safe_columns(df.columns))
             record_count = df.count()
 
             df.write.format("delta").mode("overwrite").save(str(staged_path))

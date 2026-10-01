@@ -3,11 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dashboard — DataLake</title>
+<title>Workspace — DataLake</title>
+<script src="theme.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
 
 <style>
 /* =========================================================
@@ -16,36 +18,11 @@
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
 :root{
-  --bg:        #FAFAFA;
-  --surface:   #FFFFFF;
-  --border:    #E5E7EB;
-  --border-strong: #D1D5DB;
-  --text:      #111827;
-  --text-muted:#6B7280;
-  --text-faint:#9CA3AF;
-  --blue:      #2563EB;
-  --blue-dim:  #EFF4FF;
-  --green:     #16A34A;
-  --green-dim: #EEFBF2;
-  --amber:     #D97706;
-  --amber-dim: #FEF6E7;
-  --red:       #DC2626;
-  --red-dim:   #FEF2F2;
-
-  --radius-sm: 6px;
-  --radius:    8px;
-  --radius-lg: 10px;
-
-  --shadow-xs: 0 1px 2px rgba(17,24,39,0.04);
-  --shadow-sm: 0 1px 3px rgba(17,24,39,0.06), 0 1px 2px rgba(17,24,39,0.04);
-  --shadow-md: 0 8px 24px rgba(17,24,39,0.08);
-
-  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --sidebar-w: 216px;
-  --topbar-h: 56px;
+  /* colours, fonts, radii and shadows come from theme.css (light/dark + accent) */
+  --blue: var(--accent);
+  --blue-dim: var(--accent-soft);
+  --sidebar-w: 232px;
+  --topbar-h: 60px;
 }
 
 body{
@@ -82,22 +59,22 @@ input,select{ font-family:var(--font-ui); }
   white-space:nowrap;
 }
 .btn svg{ width:14px; height:14px; }
-.btn-dark{ background: var(--text); color: #fff; border: 1px solid var(--text); }
-.btn-dark:hover{ background:#000; }
+.btn-dark{ background: var(--text); color: var(--on-text); border: 1px solid var(--text); }
+.btn-dark:hover{ opacity:.86; }
 .btn-dark:disabled{ opacity:.5; cursor:default; }
 .btn-outline{ background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); }
-.btn-outline:hover{ border-color:#9CA3AF; background:#FCFCFD; }
+.btn-outline:hover{ border-color:var(--text-faint); background:var(--surface-2); }
 .btn-ghost{ background:transparent; color: var(--text-muted); border:1px solid transparent; }
 .btn-danger{ color: var(--red); }
-.btn-danger:hover{ background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.2); }
-.btn-danger-solid{ background: var(--red); color: #fff; border: 1px solid var(--red); }
+.btn-danger:hover{ background: var(--red-dim); border-color: var(--red); }
+.btn-danger-solid{ background: var(--red); color: var(--surface); border: 1px solid var(--red); }
 .btn-danger-solid:hover{ opacity: 0.9; }
-.btn-ghost:hover{ color:var(--text); background:rgba(17,24,39,0.04); }
+.btn-ghost:hover{ color:var(--text); background:var(--surface-3); }
 .btn-sm{ height:30px; padding:0 10px; font-size:12.5px; }
 
 .spinner{
   width:13px; height:13px; border-radius:50%;
-  border:2px solid rgba(255,255,255,0.35); border-top-color:#fff;
+  border:2px solid currentColor; border-top-color:transparent; opacity:.7;
   animation: spin .6s linear infinite; display:none;
 }
 .btn.loading .spinner{ display:inline-block; }
@@ -120,7 +97,7 @@ input,select{ font-family:var(--font-ui); }
   width: var(--sidebar-w);
   flex-shrink:0;
   border-right:1px solid var(--border);
-  background: #FCFCFD;
+  background: var(--surface-2);
   display:flex; flex-direction:column;
   position:fixed; top:0; bottom:0; left:0;
   z-index:100;
@@ -146,20 +123,19 @@ input,select{ font-family:var(--font-ui); }
   margin-bottom:2px;
   transition: background .12s var(--ease), color .12s var(--ease);
 }
-.dsitem:hover{ background:rgba(17,24,39,0.045); color:var(--text); }
+.dsitem:hover{ background:var(--surface-3); color:var(--text); }
 .dsitem .icon{ width:15px; height:15px; }
-.dsitem.active{ background:#fff; color:var(--text); border:1px solid var(--border); font-weight:600; box-shadow: var(--shadow-xs); }
+.dsitem.active{ background:var(--surface); color:var(--text); border:1px solid var(--border); font-weight:600; box-shadow: var(--shadow-xs); }
 .dsdiv{ height:1px; background:var(--border); margin:12px 6px; }
-.nav-section-label{ font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faint); padding: 8px 10px 6px; }
 
 .sidebar-foot{
   padding: 12px; border-top:1px solid var(--border);
 }
 .user-row{ display:flex; align-items:center; gap:9px; padding:6px; border-radius:8px; }
-.user-row:hover{ background:rgba(17,24,39,0.04); }
+.user-row:hover{ background:var(--surface-3); }
 .user-avatar{
   width:28px; height:28px; border-radius:50%;
-  background: var(--text); color:#fff;
+  background: var(--text); color:var(--on-text);
   display:flex; align-items:center; justify-content:center;
   font-size:12px; font-weight:700; flex-shrink:0;
 }
@@ -177,7 +153,7 @@ input,select{ font-family:var(--font-ui); }
   border-bottom:1px solid var(--border);
   display:flex; align-items:center; justify-content:space-between;
   padding: 0 24px;
-  background: rgba(250,250,250,0.9);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
   position:sticky; top:0; z-index:50;
 }
@@ -229,7 +205,7 @@ input,select{ font-family:var(--font-ui); }
 .dtable{ width:100%; }
 .dtable .trow{ display:grid; grid-template-columns: 2.2fr 1fr 1fr 1fr 90px; padding: 11px 18px; border-bottom:1px solid var(--border); font-size: 12.8px; align-items:center; }
 .dtable .trow:last-child{ border-bottom:none; }
-.dtable .thead{ background:#FCFCFD; color:var(--text-faint); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
+.dtable .thead{ background:var(--surface-2); color:var(--text-faint); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
 .dtable .tname{ display:flex; align-items:center; gap:8px; color:var(--text); font-weight:500; min-width:0; }
 .dtable .tname span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dtable .tname .icon{ width:14px; height:14px; color:var(--text-faint); flex-shrink:0; }
@@ -252,7 +228,7 @@ input,select{ font-family:var(--font-ui); }
 .dropzone:hover, .dropzone.dragover{ border-color: var(--blue); background: var(--blue-dim); }
 .dropzone .dzicon{
   width:44px; height:44px; border-radius:10px;
-  background:#FCFCFD; border:1px solid var(--border);
+  background:var(--surface-2); border:1px solid var(--border);
   display:flex; align-items:center; justify-content:center;
   margin: 0 auto 16px; color:var(--text-muted);
 }
@@ -269,7 +245,7 @@ input,select{ font-family:var(--font-ui); }
   margin-bottom:8px;
   background:var(--surface);
 }
-.queue-item .qicon{ width:32px; height:32px; border-radius:7px; background:#FCFCFD; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--text-muted); flex-shrink:0; }
+.queue-item .qicon{ width:32px; height:32px; border-radius:7px; background:var(--surface-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--text-muted); flex-shrink:0; }
 .queue-item .qicon .icon{ width:15px; height:15px; }
 .queue-item .qmeta{ flex:1; min-width:0; }
 .queue-item .qname{ font-size:13px; font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -285,26 +261,6 @@ input,select{ font-family:var(--font-ui); }
 .upload-footer{ display:flex; align-items:center; justify-content:space-between; margin-top:16px; gap:12px; flex-wrap:wrap; }
 .upload-footer .count{ font-size:12.5px; color:var(--text-muted); }
 
-.field-inline{ margin-top:14px; }
-.field-inline label{ display:block; font-size:12px; font-weight:600; margin-bottom:6px; }
-.field-inline input[type="file"]{ display:none; }
-
-/* ---- placeholder panel (pipeline / sql / semantic / reports / settings) ---- */
-.placeholder-panel{
-  border:1px dashed var(--border-strong);
-  border-radius: var(--radius-lg);
-  padding: 56px 24px;
-  text-align:center;
-  color:var(--text-muted);
-}
-.placeholder-panel .picon{
-  width:42px; height:42px; border-radius:10px;
-  background:#FCFCFD; border:1px solid var(--border);
-  display:flex; align-items:center; justify-content:center;
-  margin:0 auto 16px; color:var(--text-faint);
-}
-.placeholder-panel h3{ font-size:14.5px; font-weight:650; color:var(--text); margin-bottom:6px; }
-.placeholder-panel p{ font-size:13px; max-width:360px; margin:0 auto; }
 
 /* =========================================================
    RESPONSIVE
@@ -336,19 +292,69 @@ input,select{ font-family:var(--font-ui); }
 .result-meta{ font-size:12px; color:var(--text-faint); margin:10px 0 4px; }
 .result-scroll{ overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-sm); }
 .result-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
-.result-table th{ text-align:left; background:#FCFCFD; color:var(--text-faint); font-weight:600;
+.result-table th{ text-align:left; background:var(--surface-2); color:var(--text-faint); font-weight:600;
   font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; padding:9px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
 .result-table td{ padding:8px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); color:var(--text); white-space:nowrap; max-width:280px; overflow:hidden; text-overflow:ellipsis; }
 .result-table tr:last-child td{ border-bottom:none; }
 .inline-msg{ font-size:12.5px; color:var(--text-muted); padding:10px 2px; }
 .inline-msg.error{ color:var(--red); }
 .stage-row{ display:grid; grid-template-columns: 2fr repeat(4, 1fr); gap:10px; padding:11px 18px; border-bottom:1px solid var(--border); align-items:center; font-size:12.8px; }
-.stage-row.thead{ background:#FCFCFD; color:var(--text-faint); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
+.stage-row.thead{ background:var(--surface-2); color:var(--text-faint); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
 .report-item{ border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px 16px; margin-bottom:12px; }
 .report-item .rq{ font-weight:600; font-size:13px; margin-bottom:4px; }
 .report-item .rs{ font-size:12.8px; color:var(--text-muted); line-height:1.5; white-space:pre-line; }
 .report-item .rmeta{ font-size:11px; color:var(--text-faint); margin-top:8px; font-family:var(--font-mono); }
   .result-thumb { display:block; max-width:120px; max-height:120px; border-radius:6px; border:1px solid rgba(128,128,128,.25); }
+
+/* neutral chip for pending stages */
+.chip-gray{ background: var(--surface-3); color: var(--text-muted); } .chip-gray .d{ background: var(--text-faint); }
+/* =========================================================
+   PRODUCTION THEME POLISH (works in light + dark)
+========================================================= */
+body{ background: var(--bg); }
+.sidebar{ background: var(--surface-2); border-right-color: var(--border); }
+.sidebar-head{ border-bottom:none; padding: 0 18px; }
+.nav-logo{ font-size:17px; gap:10px; }
+.logo-mark{ width:20px; display:flex; flex-direction:column; gap:3px; }
+.logo-mark span{ height:4px; border-radius:1px; display:block; }
+.logo-mark span:nth-child(1){ background: var(--bronze); }
+.logo-mark span:nth-child(2){ background: var(--silver); margin-left:3px; }
+.logo-mark span:nth-child(3){ background: var(--accent); margin-left:6px; }
+.sidebar-nav{ padding: 8px 12px; }
+.dsitem{ font-size:14px; padding: 8px 10px; border:1px solid transparent; cursor:pointer; }
+.dsitem.active{ font-weight:500; }
+.dsitem.active .icon{ color: var(--accent); }
+.user-avatar{ background: var(--accent); color: var(--accent-contrast); }
+.topbar{ border-bottom-color: var(--border); padding: 0 28px; }
+.topbar-title{ font-size:15px; font-weight:600; }
+.topbar-search{ height:36px; border-radius: var(--radius); background: var(--surface); width: 280px; }
+.topbar-search:hover{ border-color: var(--border-strong); }
+.content{ padding: 32px 36px 72px; max-width: 1280px; }
+.page-head h1{ font-size: 26px; font-weight:600; letter-spacing:-0.03em; }
+.page-head p{ font-size:14.5px; }
+.stat-row{ border-radius: var(--radius-lg); background: var(--surface); }
+.stat-icon{ border-radius: var(--radius); }
+.stat-icon.blue{ background: var(--accent-soft); color: var(--accent); }
+.stat-cell .sval{ font-weight:600; letter-spacing:-0.02em; }
+.card{ border-radius: var(--radius-lg); background: var(--surface); }
+.card-head select, .field select, .field input[type="text"], .field textarea{
+  background: var(--surface); color: var(--text); border:1px solid var(--border-strong); border-radius: var(--radius);
+}
+.card-head select{ height:34px; padding: 0 10px; font-size:13.5px; font-family: var(--font-ui); }
+.field select:focus, .field input[type="text"]:focus, .field textarea:focus, .card-head select:focus{
+  outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.dropzone{ border-radius: var(--radius-lg); background: var(--surface-2); }
+.dropzone:hover, .dropzone.dragover{ border-color: var(--accent); background: var(--accent-soft); }
+.format-badge{ background: var(--surface); }
+.result-table th{ background: var(--surface-2); }
+code{ font-family: var(--font-mono); font-size:.9em; padding: 1px 5px; border-radius:4px; background: var(--surface-3); }
+#overviewChartsMsg{ padding: 16px 18px; }
+@media (max-width: 900px){
+  .content{ padding: 24px 16px 60px; }
+  #overviewChartsGrid{ grid-template-columns: 1fr !important; }
+  .topbar{ padding: 0 16px; }
+}
 </style>
 </head>
 <body>
@@ -358,12 +364,7 @@ input,select{ font-family:var(--font-ui); }
   <!-- ===== SIDEBAR ===== -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-head">
-      <a href="index.html" class="nav-logo">
-        <span class="mark">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 18l9 4 9-4"/></svg>
-        </span>
-        DataLake
-      </a>
+      <a href="index.html" class="nav-logo" aria-label="DataLake home"><span class="logo-mark"><span></span><span></span><span></span></span>DataLake</a>
     </div>
 
     <nav class="sidebar-nav">
@@ -431,6 +432,7 @@ input,select{ font-family:var(--font-ui); }
           Search across your data…
           <span class="kbd" id="topbarSearchKbd">Ctrl K</span>
         </div>
+        <span data-theme-menu></span>
         <button class="btn btn-dark btn-sm" id="quickUploadBtn">
           <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
           Upload
@@ -700,6 +702,12 @@ input,select{ font-family:var(--font-ui); }
         </div>
 
         <div class="card" style="padding:22px; margin-bottom:16px;">
+          <h3 style="margin:0 0 16px;">Appearance</h3>
+          <p class="tmuted" style="font-size:13.5px; margin:-6px 0 16px;">Changes every page: the landing page, sign-in and this workspace. Saved on this device.</p>
+          <div data-theme-picker></div>
+        </div>
+
+        <div class="card" style="padding:22px; margin-bottom:16px;">
           <h3 style="margin:0 0 16px;">Workspace</h3>
           <div style="display:grid; grid-template-columns:120px 1fr; gap:12px; font-size:14px;">
             <div class="tmuted">Datasets</div><div id="settingsDatasetCount">—</div>
@@ -732,10 +740,10 @@ input,select{ font-family:var(--font-ui); }
      Dashboard for the FastAPI backend (lakehouse_backend/main.py).
      Every page talks to the real API: /auth/me, /datasets, /upload/bulk,
      /pipeline/status, /sql/query, /search/query, /reports/generate.
-     The JWT from login.html is kept in localStorage as access_token.
+     The JWT from login.html is kept in localStorage ("keep me signed in") or sessionStorage as access_token.
   ============================================================ */
   var API_BASE = 'http://localhost:8000'; // FastAPI backend (uvicorn main:app --reload)
-  var accessToken = localStorage.getItem('access_token');
+  var accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
 
   if (!accessToken){
     window.location.href = 'login.html';
@@ -811,7 +819,7 @@ input,select{ font-family:var(--font-ui); }
       .catch(function(err){
         if (err === 'unauthorized') return;
         // Backend unreachable — fall back to the cached username so the shell still renders.
-        var cached = localStorage.getItem('username') || 'user';
+        var cached = localStorage.getItem('username') || sessionStorage.getItem('username') || 'user';
         document.getElementById('userAvatar').textContent = cached.charAt(0).toUpperCase();
         document.getElementById('userName').textContent = cached;
         document.getElementById('userEmail').textContent = 'Backend unreachable at ' + API_BASE;
@@ -822,6 +830,8 @@ input,select{ font-family:var(--font-ui); }
   function logout(){
     localStorage.removeItem('access_token');
     localStorage.removeItem('username');
+    sessionStorage.removeItem('access_token');
+    sessionStorage.removeItem('username');
     window.location.href = 'login.html';
   }
   document.getElementById('logoutBtn').addEventListener('click', logout);
@@ -1102,21 +1112,56 @@ input,select{ font-family:var(--font-ui); }
      /sql/query (group_by + agg) endpoints that already power SQL
      Explorer — no new backend endpoint needed.
      ============================================================ */
+  function themeColor(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  if (window.Chart){ Chart.defaults.font.family = 'Geist, sans-serif'; }
+  // Re-colour live charts when the theme or accent changes.
+  window.addEventListener('dl-themechange', function(){
+    [overviewCategoryChartInstance, overviewPriceChartInstance].forEach(function(c){
+      if (!c) return;
+      c.data.datasets[0].backgroundColor = themeColor('--accent');
+      c.options.scales.x.grid.color = themeColor('--border');
+      c.options.scales.x.border.color = themeColor('--border');
+      c.options.scales.y.border.color = themeColor('--border');
+      c.options.scales.x.ticks.color = themeColor('--text-faint');
+      c.options.scales.y.ticks.color = themeColor('--text-muted');
+      c.update('none');
+    });
+  });
   var overviewCategoryChartInstance = null;
   var overviewPriceChartInstance = null;
-  var CATEGORY_COLUMN_CANDIDATES = ['category', 'sub_category', 'brand', 'seller'];
+  var CATEGORY_COLUMN_CANDIDATES = ['category', 'sub_category', 'brand', 'seller', 'mailbox', 'folder'];
   var PRICE_COLUMN_CANDIDATES = ['selling_price', 'actual_price', 'price', 'amount'];
 
   document.getElementById('overviewBreakdownSelect').addEventListener('change', function(e){
     loadOverviewCharts(e.target.value || null);
   });
 
-  function getTableColumns(tableName){
-    return fetch(API_BASE + '/sql/tables', { headers: authHeaders() })
-      .then(function(res){ return res.json(); })
+  // Picks what to chart from a sample of real rows, so any dataset works,
+  // not just ones with retail column names. Known names still win.
+  // ponytail: infers from the first 200 rows; a rare category that only
+  // appears later in the file won't influence the choice.
+  var SKIP_NUMERIC = /^(id|.*_id|ref|.*_ref|year|month|day|page_number|is_.*)$/i;
+  function pickChartColumns(tableName){
+    return fetch(API_BASE + '/datasets/' + encodeURIComponent(tableName) + '/preview?limit=200', { headers: authHeaders() })
+      .then(function(res){ return res.ok ? res.json() : { columns: [], rows: [] }; })
       .then(function(data){
-        var entry = (data.tables || []).find(function(t){ return t.table_name === tableName; });
-        return entry ? entry.columns : [];
+        var cols = data.columns || [], rows = data.rows || [];
+        function values(c){ return rows.map(function(r){ return r[c]; }).filter(function(v){ return v !== null && v !== undefined && v !== ''; }); }
+        function distinct(c){ return new Set(values(c).map(String)).size; }
+        var category = CATEGORY_COLUMN_CANDIDATES.find(function(c){ return cols.indexOf(c) !== -1 && distinct(c) >= 2; }) ||
+          cols.filter(function(c){
+            var v = values(c), d = distinct(c);
+            return c !== 'id' && v.length && d >= 2 && d <= 15 && d < v.length &&
+                   v.every(function(x){ return typeof x === 'string' || typeof x === 'boolean'; }) &&
+                   v.every(function(x){ return String(x).length <= 60; });
+          }).sort(function(x, y){ return distinct(y) - distinct(x); })[0];
+        var numeric = PRICE_COLUMN_CANDIDATES.find(function(c){ return cols.indexOf(c) !== -1; }) ||
+          cols.find(function(c){
+            var v = values(c);
+            return c !== category && !SKIP_NUMERIC.test(c) && v.length &&
+                   v.every(function(x){ return typeof x === 'number'; }) && new Set(v).size > 1;
+          });
+        return { columns: cols, category: category, numeric: numeric };
       });
   }
 
@@ -1133,19 +1178,19 @@ input,select{ font-family:var(--font-ui); }
       return;
     }
 
-    getTableColumns(tableName).then(function(columns){
-      var categoryCol = CATEGORY_COLUMN_CANDIDATES.find(function(c){ return columns.indexOf(c) !== -1; });
-      var priceCol = PRICE_COLUMN_CANDIDATES.find(function(c){ return columns.indexOf(c) !== -1; });
+    pickChartColumns(tableName).then(function(pick){
+      var columns = pick.columns, categoryCol = pick.category, priceCol = pick.numeric;
 
       if (!categoryCol) {
         gridEl.style.display = 'none';
         msgEl.style.display = 'block';
-        msgEl.textContent = 'This dataset has no category-like column (checked: ' + CATEGORY_COLUMN_CANDIDATES.join(', ') + ') to break down by.';
+        msgEl.textContent = 'Nothing to chart here: this dataset has no column with a small set of repeating values (like a type, folder or yes/no flag) to group by.';
         return;
       }
 
       msgEl.style.display = 'none';
       gridEl.style.display = 'grid';
+      document.getElementById('overviewCategoryChart').closest('div').querySelector('.sub').textContent = 'Records by ' + categoryCol;
 
       // Chart 1: record count per category value. Deliberately counts a
       // DIFFERENT column than categoryCol, not categoryCol itself.
@@ -1163,7 +1208,7 @@ input,select{ font-family:var(--font-ui); }
       // Chart 2: average price per category value (only if a price-like column exists)
       var priceCanvas = document.getElementById('overviewPriceChart').closest('div');
       if (!priceCol) {
-        priceCanvas.querySelector('.sub').textContent = 'Avg. price by category (unavailable)';
+        priceCanvas.querySelector('.sub').textContent = 'No numeric column to average by ' + categoryCol;
         if (overviewPriceChartInstance) { overviewPriceChartInstance.destroy(); overviewPriceChartInstance = null; }
         return;
       }
@@ -1187,8 +1232,8 @@ input,select{ font-family:var(--font-ui); }
         var ctx = chart.ctx;
         var meta = chart.getDatasetMeta(0);
         ctx.save();
-        ctx.fillStyle = '#374151';
-        ctx.font = '600 12px Inter, sans-serif';
+        ctx.fillStyle = themeColor('--text-muted');
+        ctx.font = '500 12px Geist, sans-serif';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
         meta.data.forEach(function(bar, i){
@@ -1216,7 +1261,7 @@ input,select{ font-family:var(--font-ui); }
 
     var chart = new Chart(ctx, {
       type: 'bar',
-      data: { labels: labels, datasets: [{ label: label, data: values, backgroundColor: '#2563EB', borderRadius: 4, maxBarThickness: 28 }] },
+      data: { labels: labels, datasets: [{ label: label, data: values, backgroundColor: themeColor('--accent'), borderRadius: 4, maxBarThickness: 28 }] },
       options: {
         indexAxis: 'y', // horizontal: long category names (e.g. "Bags, Wallets & Belts")
                         // read on one line instead of rotating/wrapping and colliding
@@ -1224,8 +1269,9 @@ input,select{ font-family:var(--font-ui); }
         layout: { padding: { right: 56 } }, // room for the value label past the longest bar
         plugins: { legend: { display: false } },
         scales: {
-          x: { beginAtZero: true, ticks: { callback: function(v){ return v.toLocaleString(); } } },
-          y: { grid: { display: false } }
+          x: { beginAtZero: true, grid: { color: themeColor('--border') }, border: { color: themeColor('--border') },
+               ticks: { color: themeColor('--text-faint'), callback: function(v){ return v.toLocaleString(); } } },
+          y: { grid: { display: false }, border: { color: themeColor('--border') }, ticks: { color: themeColor('--text-muted') } }
         }
       },
       plugins: [overviewValueLabelPlugin(formatValue)]
@@ -1443,7 +1489,7 @@ input,select{ font-family:var(--font-ui); }
     if (status === 'running') return '<span class="chip chip-amber"><span class="d"></span>Running</span>';
     if (status === 'failed') return '<span class="chip chip-red"><span class="d"></span>Failed</span>';
     if (status === 'skipped') return '<span class="chip chip-blue"><span class="d"></span>Skipped</span>';
-    return '<span class="chip chip-blue"><span class="d"></span>Pending</span>';
+    return '<span class="chip chip-gray"><span class="d"></span>Pending</span>';
   }
 
   var pipelinePollTimer = null;
