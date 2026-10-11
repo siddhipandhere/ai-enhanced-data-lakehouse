@@ -352,7 +352,7 @@ code{ font-family: var(--font-mono); font-size:.9em; padding: 1px 5px; border-ra
 #overviewChartsMsg{ padding: 16px 18px; }
 @media (max-width: 900px){
   .content{ padding: 24px 16px 60px; }
-  #overviewChartsGrid{ grid-template-columns: 1fr !important; }
+  #overviewChartsGrid{ grid-template-columns: minmax(0,1fr) !important; }
   .topbar{ padding: 0 16px; }
 }
 </style>
@@ -484,17 +484,20 @@ code{ font-family: var(--font-mono); font-size:.9em; padding: 1px 5px; border-ra
         <div class="card">
           <div class="card-head">
             <h3>Dataset breakdown</h3>
-            <select id="overviewBreakdownSelect"></select>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <select id="overviewSeriesSelect" aria-label="Series to chart" style="display:none; max-width:240px;"></select>
+              <select id="overviewBreakdownSelect" aria-label="Dataset to chart"></select>
+            </div>
           </div>
           <div id="overviewChartsMsg" class="inline-msg" style="display:none;"></div>
-          <div class="chart-grid" id="overviewChartsGrid" style="display:none; grid-template-columns:1fr 1fr; gap:24px; padding:8px 4px;">
-            <div>
-              <div class="sub" style="margin-bottom:8px;">Records by category</div>
-              <canvas id="overviewCategoryChart" height="220"></canvas>
+          <div class="chart-grid" id="overviewChartsGrid" style="display:none; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; padding:8px 4px;">
+            <div class="chart-box">
+              <div class="sub" style="margin-bottom:8px;"></div>
+              <div style="position:relative; height:260px;"><canvas id="overviewChart0"></canvas></div>
             </div>
-            <div>
-              <div class="sub" style="margin-bottom:8px;">Avg. price by category</div>
-              <canvas id="overviewPriceChart" height="220"></canvas>
+            <div class="chart-box">
+              <div class="sub" style="margin-bottom:8px;"></div>
+              <div style="position:relative; height:260px;"><canvas id="overviewChart1"></canvas></div>
             </div>
           </div>
         </div>
@@ -1116,10 +1119,12 @@ code{ font-family: var(--font-mono); font-size:.9em; padding: 1px 5px; border-ra
   if (window.Chart){ Chart.defaults.font.family = 'Geist, sans-serif'; }
   // Re-colour live charts when the theme or accent changes.
   window.addEventListener('dl-themechange', function(){
-    [overviewCategoryChartInstance, overviewPriceChartInstance].forEach(function(c){
+    overviewCharts.forEach(function(c){
       if (!c) return;
       c.data.datasets[0].backgroundColor = themeColor('--accent');
+      c.data.datasets[0].borderColor = themeColor('--accent');
       c.options.scales.x.grid.color = themeColor('--border');
+      c.options.scales.y.grid.color = themeColor('--border');
       c.options.scales.x.border.color = themeColor('--border');
       c.options.scales.y.border.color = themeColor('--border');
       c.options.scales.x.ticks.color = themeColor('--text-faint');
@@ -1127,104 +1132,287 @@ code{ font-family: var(--font-mono); font-size:.9em; padding: 1px 5px; border-ra
       c.update('none');
     });
   });
-  var overviewCategoryChartInstance = null;
-  var overviewPriceChartInstance = null;
-  var CATEGORY_COLUMN_CANDIDATES = ['category', 'sub_category', 'brand', 'seller', 'mailbox', 'folder'];
-  var PRICE_COLUMN_CANDIDATES = ['selling_price', 'actual_price', 'price', 'amount'];
+  var OVERVIEW_CANVASES = ['overviewChart0', 'overviewChart1'];
+  var overviewCharts = [null, null];
+  var overviewDraw = null;   // redraws the current dataset for a chosen series
+  var overviewSeq = 0;       // ignores responses for a dataset the user already switched away from
+  var seriesSelect = document.getElementById('overviewSeriesSelect');
 
   document.getElementById('overviewBreakdownSelect').addEventListener('change', function(e){
     loadOverviewCharts(e.target.value || null);
   });
+  seriesSelect.addEventListener('change', function(){ if (overviewDraw) overviewDraw(seriesSelect.value); });
 
-  // Picks what to chart from a sample of real rows, so any dataset works,
-  // not just ones with retail column names. Known names still win.
-  // ponytail: infers from the first 200 rows; a rare category that only
-  // appears later in the file won't influence the choice.
-  var SKIP_NUMERIC = /^(id|.*_id|ref|.*_ref|year|month|day|page_number|is_.*)$/i;
-  function pickChartColumns(tableName){
-    return fetch(API_BASE + '/datasets/' + encodeURIComponent(tableName) + '/preview?limit=200', { headers: authHeaders() })
-      .then(function(res){ return res.ok ? res.json() : { columns: [], rows: [] }; })
-      .then(function(data){
-        var cols = data.columns || [], rows = data.rows || [];
-        function values(c){ return rows.map(function(r){ return r[c]; }).filter(function(v){ return v !== null && v !== undefined && v !== ''; }); }
-        function distinct(c){ return new Set(values(c).map(String)).size; }
-        var category = CATEGORY_COLUMN_CANDIDATES.find(function(c){ return cols.indexOf(c) !== -1 && distinct(c) >= 2; }) ||
-          cols.filter(function(c){
-            var v = values(c), d = distinct(c);
-            return c !== 'id' && v.length && d >= 2 && d <= 15 && d < v.length &&
-                   v.every(function(x){ return typeof x === 'string' || typeof x === 'boolean'; }) &&
-                   v.every(function(x){ return String(x).length <= 60; });
-          }).sort(function(x, y){ return distinct(y) - distinct(x); })[0];
-        var numeric = PRICE_COLUMN_CANDIDATES.find(function(c){ return cols.indexOf(c) !== -1; }) ||
-          cols.find(function(c){
-            var v = values(c);
-            return c !== category && !SKIP_NUMERIC.test(c) && v.length &&
-                   v.every(function(x){ return typeof x === 'number'; }) && new Set(v).size > 1;
-          });
-        return { columns: cols, category: category, numeric: numeric };
-      });
+  /* Chart choice follows the SHAPE of the data, not its column names:
+       wide    one row per line item, one column per period (investor sheets)
+       long    one row per (item, date, value) fact (XBRL-style financials)
+       time    one row per date (share prices, daily sales)
+       groups  rows that share a small set of labels (product categories)
+       labeled a handful of uniquely named rows (an image collection)
+       pages   extracted document text, one row per page
+     Name hints only break ties between columns of the same kind.
+     ponytail: shapes are inferred from the first 200 rows; a column whose
+     type only shows up later in the file won't influence the choice. */
+  var SKIP_NUMERIC = /^(id|.*_id|ref|.*_ref|.*year|month|day|page|page_number|is_.*|serial|s_?no|index|column_\d+)$/i;
+  var CATEGORY_HINT = /^(category|sub_category|type|segment|region|brand|seller|status|department|mailbox|folder)$/i;
+  var PERIOD = /^(q[1-4]_?(fy_?)?\d{2,4}|h[12]_?(fy_?)?\d{2,4}|fy_?\d{2,4}|(19|20)\d{2})$/i;
+  var MEASURE_ORDER = [/close/i, /^total$/i, /revenue|sales|income|profit/i, /amount|value|price|cost|score|qty|quantity|total|size/i];
+  var AVERAGE_NOT_SUM = /price|rate|pct|percent|margin|avg|average|ratio|score|age|_px|size|length|days/i;
+  var HEADLINE_SERIES = [/^revenues?$/i, /^revenue/i, /^total\b/i, /^(profit|net ?income)/i];   // else the first line item
+  var DATE_VALUE = /^(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})(\D|$)/;
+
+  // ISO dates parse natively; d/m/y is read day-first.
+  // ponytail: day-first assumed for slashed dates; US m/d/y files will sort wrong.
+  function dateTime(v){
+    var s = String(v), m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+    if (m) return Date.UTC(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1]);
+    return Date.parse(s.replace(' ', 'T'));
+  }
+  function dayKey(v){ return new Date(dateTime(v)).toISOString().slice(0, 10); }
+  // Excel exports often store some cells as text ("2714"), so numeric-looking strings count.
+  function toNum(v){
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && /^\s*-?[\d,]*\.?\d+\s*$/.test(v)) return parseFloat(v.replace(/,/g, ''));
+    return NaN;
   }
 
-  function loadOverviewCharts(tableName){
-    var msgEl = document.getElementById('overviewChartsMsg');
-    var gridEl = document.getElementById('overviewChartsGrid');
-
-    if (!tableName) {
-      if (overviewCategoryChartInstance) { overviewCategoryChartInstance.destroy(); overviewCategoryChartInstance = null; }
-      if (overviewPriceChartInstance) { overviewPriceChartInstance.destroy(); overviewPriceChartInstance = null; }
-      gridEl.style.display = 'none';
-      msgEl.style.display = 'block';
-      msgEl.textContent = 'No ready dataset to chart yet.';
-      return;
-    }
-
-    pickChartColumns(tableName).then(function(pick){
-      var columns = pick.columns, categoryCol = pick.category, priceCol = pick.numeric;
-
-      if (!categoryCol) {
-        gridEl.style.display = 'none';
-        msgEl.style.display = 'block';
-        msgEl.textContent = 'Nothing to chart here: this dataset has no column with a small set of repeating values (like a type, folder or yes/no flag) to group by.';
-        return;
+  function profileColumns(cols, rows){
+    return cols.map(function(c){
+      var v = rows.map(function(r){ return r[c]; }).filter(function(x){ return x !== null && x !== undefined && x !== ''; });
+      var counts = {};
+      v.forEach(function(x){ counts[x] = (counts[x] || 0) + 1; });
+      var p = { name: c, count: v.length, distinct: Object.keys(counts).length, kind: 'other',
+                topShare: v.length ? Math.max.apply(null, Object.values(counts)) / v.length : 1 };
+      if (!v.length) return p;
+      if (v.every(function(x){ return typeof x === 'string' && DATE_VALUE.test(x) && !isNaN(dateTime(x)); })) {
+        // Timestamps that all fall on one day (e.g. upload times) aren't a timeline.
+        if (new Set(v.map(dayKey)).size >= 2) p.kind = 'date';
+      } else if (v.every(function(x){ return typeof x !== 'boolean'; }) &&
+                 v.filter(function(x){ return !isNaN(toNum(x)); }).length >= 0.9 * v.length) {
+        p.kind = 'number';
+      } else if (v.every(function(x){ return typeof x === 'string' || typeof x === 'boolean'; })) {
+        p.kind = 'text';
+        p.avgLen = v.reduce(function(s, x){ return s + String(x).length; }, 0) / v.length;
       }
-
-      msgEl.style.display = 'none';
-      gridEl.style.display = 'grid';
-      document.getElementById('overviewCategoryChart').closest('div').querySelector('.sub').textContent = 'Records by ' + categoryCol;
-
-      // Chart 1: record count per category value. Deliberately counts a
-      // DIFFERENT column than categoryCol, not categoryCol itself.
-      // Grouping and counting the same column name causes pandas'
-      // .agg({col: 'count'}) to collapse the group-key column and the
-      // count-output column into a single column (same name), silently
-      // overwriting every category's name with its own count -- not an
-      // error, just quietly wrong data (e.g. "Clothing" becomes "28971").
-      // Any other present column works fine as the count target.
-      var countTargetCol = columns.find(function(c){ return c !== categoryCol; }) || categoryCol;
-      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: countTargetCol, agg_func: 'count', limit: 15, sort_desc: true, track: false })
-        .then(function(res){ renderOverviewBarChart('overviewCategoryChart', res, categoryCol, countTargetCol, 'Records'); })
-        .catch(function(err){ console.error('Overview category chart failed:', err); });
-
-      // Chart 2: average price per category value (only if a price-like column exists)
-      var priceCanvas = document.getElementById('overviewPriceChart').closest('div');
-      if (!priceCol) {
-        priceCanvas.querySelector('.sub').textContent = 'No numeric column to average by ' + categoryCol;
-        if (overviewPriceChartInstance) { overviewPriceChartInstance.destroy(); overviewPriceChartInstance = null; }
-        return;
-      }
-      priceCanvas.querySelector('.sub').textContent = 'Avg. ' + priceCol + ' by ' + categoryCol;
-      postJson('/sql/query', { table_name: tableName, group_by: [categoryCol], agg_column: priceCol, agg_func: 'mean', limit: 15, sort_desc: true, track: false })
-        .then(function(res){ renderOverviewBarChart('overviewPriceChart', res, categoryCol, priceCol, 'Avg. ' + priceCol); })
-        .catch(function(err){ console.error('Overview price chart failed:', err); });
+      return p;
     });
   }
 
-  // Draws each bar's actual value just past its end. Without this, a
-  // chart where one category dominates (e.g. "Clothing and Accessories"
-  // at ~29,000 next to others near-zero on the same linear scale)
-  // leaves the small bars' real values impossible to read without
-  // hovering one at a time -- the story ("how much smaller are the
-  // others, exactly") is exactly what's illegible by default.
+  function pickMeasure(names){
+    for (var i = 0; i < MEASURE_ORDER.length; i++) {
+      var hit = names.find(function(c){ return MEASURE_ORDER[i].test(c); });
+      if (hit) return hit;
+    }
+    return names[0];
+  }
+  function lastWord(c){ return c.split('_').pop().toLowerCase(); }
+  function pickHeadline(list){
+    for (var i = 0; i < HEADLINE_SERIES.length; i++) {
+      var hit = list.find(function(s){ return HEADLINE_SERIES[i].test(s); });
+      if (hit) return hit;
+    }
+    return list[0];
+  }
+
+  // Decides the dataset's shape from a sample of rows. Returns
+  // { shape, ...columns } or { shape: 'none', message }.
+  function planCharts(cols, rows){
+    var P = profileColumns(cols, rows);
+    function names(list){ return list.map(function(p){ return p.name; }); }
+    var dates = P.filter(function(p){ return p.kind === 'date'; });
+    var texts = P.filter(function(p){ return p.kind === 'text'; });
+    var numbers = P.filter(function(p){ return p.kind === 'number' && !SKIP_NUMERIC.test(p.name); });
+    var measures = names(numbers.filter(function(p){ return p.distinct > 1; }));
+    var periods = names(numbers).filter(function(c){ return PERIOD.test(c); });   // a flat period is still a period
+    var labels = texts.filter(function(p){ return p.avgLen <= 80 && p.distinct >= 2; })
+                      .sort(function(a, b){ return b.distinct - a.distinct; });
+    var groups = labels.filter(function(p){ return p.avgLen <= 40 && p.distinct <= 50 && p.distinct < p.count && p.topShare <= 0.95; });
+    var group = groups.find(function(p){ return CATEGORY_HINT.test(p.name); }) ||
+                groups.find(function(p){ return p.distinct <= 15; }) || groups[0];
+    var measure = pickMeasure(measures);
+
+    if (periods.length >= 4 && labels.length)
+      return { shape: 'wide', label: labels[0].name, periods: periods };
+
+    // The most complete date column; ties go to the one named like a period end/date (not 'filed').
+    var date = dates.slice().sort(function(a, b){ return (b.count - a.count) || (/date|end|period|time/i.test(b.name) - /date|end|period|time/i.test(a.name)); })[0];
+    var key = labels.find(function(p){ return p.distinct >= 3 && /^\w+$/.test(p.name); });
+    if (date && measure && key && date.distinct < 0.5 * date.count)
+      return { shape: 'long', date: date.name, key: key.name, measure: measure };
+
+    if (date && measure) {
+      var others = measures.filter(function(c){ return c !== measure && lastWord(c) !== lastWord(measure); });
+      return { shape: 'time', date: date.name, measure: measure, group: group && group.name, measure2: pickMeasure(others) };
+    }
+    if (group) return { shape: 'groups', group: group.name, measure: measure };
+    var unique = labels.filter(function(p){ return p.distinct === p.count; })
+                       .sort(function(a, b){ return a.avgLen - b.avgLen; })[0];   // a name, not a path
+    if (unique && measure) return { shape: 'labeled', label: unique.name, measure: measure };
+
+    var prose = texts.find(function(p){ return p.avgLen > 200; });
+    var page = cols.find(function(c){ return /page/i.test(c); });
+    if (prose && page) return { shape: 'pages', text: prose.name, page: page };
+    if (texts.length && !measures.length) return { shape: 'none', message: 'This dataset is plain text with nothing numeric to chart. Use Search to explore it.' };
+    return { shape: 'none', message: 'Nothing to chart here: no dates, numbers or repeating labels were found.' };
+  }
+
+  // ---- data fetchers (all through the existing /sql/query endpoint) ----
+  function fetchRows(table){
+    return postJson('/sql/query', { table_name: table, limit: 5000, track: false })
+      .then(function(r){ return r.rows || []; });
+  }
+  function fetchAgg(table, group, col, func, extra){
+    var body = Object.assign({ table_name: table, group_by: [group], agg_column: col, agg_func: func, limit: 15, sort_desc: true, track: false }, extra || {});
+    var out = col === group ? col + '_' + func : col;   // gold.aggregate renames a self-aggregate
+    return postJson('/sql/query', body).then(function(r){
+      return (r.rows || []).filter(function(x){ return x[group] !== null && x[out] !== null; })
+                           .map(function(x){ return { label: x[group], value: x[out] }; });
+    });
+  }
+  function aggName(func, col){ return (func === 'mean' ? 'Avg. ' : func === 'sum' ? 'Sum of ' : '') + col; }
+  function bySum(c){ return AVERAGE_NOT_SUM.test(c) ? 'mean' : 'sum'; }
+  function ranked(title, pts){
+    pts = pts.filter(function(p){ return p.value; }).sort(function(a, b){ return b.value - a.value; }).slice(0, 15);
+    return { type: 'bar', title: title, labels: pts.map(function(p){ return String(p.label); }), values: pts.map(function(p){ return p.value; }) };
+  }
+  function timeline(title, pts){
+    pts = pts.slice().sort(function(a, b){ return dateTime(a.label) - dateTime(b.label); });
+    return { type: 'line', title: title, labels: pts.map(function(p){ return dayKey(p.label); }), values: pts.map(function(p){ return p.value; }) };
+  }
+  // ponytail: line charts take one point per date, capped at 5,000 by the
+  // backend; longer daily histories need month bucketing server-side.
+  function trend(table, plan, measure, extra){
+    return fetchAgg(table, plan.date, measure, 'mean', Object.assign({ limit: 5000, sort_desc: false }, extra || {}));
+  }
+
+  // Each shape returns { series?: [names], draw(series) -> Promise<[spec, spec?]> }.
+  var SHAPES = {
+    wide: function(table, plan){
+      return fetchRows(table).then(function(rows){
+        var isQuarter = function(c){ return /^q/i.test(c); };
+        var isYear = function(c){ return /^(fy|19|20)/i.test(c); };
+        var line = plan.periods.filter(isQuarter).length >= 4 ? plan.periods.filter(isQuarter) : plan.periods;
+        var years = plan.periods.filter(isYear);
+        var items = rows.filter(function(r){
+          return r[plan.label] && line.filter(function(c){ return !isNaN(toNum(r[c])); }).length >= line.length / 2;
+        });
+        var series = Array.from(new Set(items.map(function(r){ return String(r[plan.label]); })));
+        var pretty = function(c){ return c.replace(/_/g, ' ').toUpperCase(); };
+        return { series: series, draw: function(name){
+          var row = items.find(function(r){ return String(r[plan.label]) === name; });
+          var specs = [{ type: 'line', title: name + ' by period', labels: line.map(pretty), values: line.map(function(c){ return toNum(row[c]); }) }];
+          if (years.length >= 2 && line.some(isQuarter))
+            specs.push({ type: 'column', title: name + ' by year', labels: years.map(pretty), values: years.map(function(c){ return toNum(row[c]); }) });
+          return Promise.resolve(specs);
+        }};
+      });
+    },
+    long: function(table, plan){
+      return fetchAgg(table, plan.key, plan.key, 'count', { limit: 1000 }).then(function(pts){
+        var series = pts.map(function(p){ return String(p.label); });
+        // Default to a headline series with real history (>= 5 points); a
+        // "Revenue" fact filed in only 3 years makes a weak first view.
+        var rich = pts.filter(function(p){ return p.value >= 5; }).map(function(p){ return String(p.label); });
+        return { series: series, pick: rich.length ? pickHeadline(rich) : series[0], draw: function(name){
+          return trend(table, plan, plan.measure, { query: plan.key + ' == ' + JSON.stringify(name) }).then(function(pts){
+            return [timeline(name + ' over time', pts)];
+          });
+        }};
+      });
+    },
+    time: function(table, plan){
+      return { draw: function(){
+        var second = plan.group
+          ? fetchAgg(table, plan.group, plan.measure, bySum(plan.measure)).then(function(pts){ return ranked(aggName(bySum(plan.measure), plan.measure) + ' by ' + plan.group, pts); })
+          : plan.measure2 ? trend(table, plan, plan.measure2).then(function(pts){ return timeline(plan.measure2 + ' over time', pts); }) : null;
+        return Promise.all([trend(table, plan, plan.measure).then(function(pts){ return timeline(plan.measure + ' over time', pts); }), second]);
+      }};
+    },
+    groups: function(table, plan){
+      return { draw: function(){
+        var f = plan.measure && bySum(plan.measure);
+        return Promise.all([
+          plan.measure ? fetchAgg(table, plan.group, plan.measure, f).then(function(pts){ return ranked(aggName(f, plan.measure) + ' by ' + plan.group, pts); }) : null,
+          fetchAgg(table, plan.group, plan.group, 'count').then(function(pts){ return ranked('Records by ' + plan.group, pts); })
+        ]);
+      }};
+    },
+    labeled: function(table, plan){
+      return { draw: function(){
+        return fetchAgg(table, plan.label, plan.measure, 'mean').then(function(pts){ return [ranked(plan.measure + ' by ' + plan.label, pts)]; });
+      }};
+    },
+    pages: function(table, plan){
+      return { draw: function(){
+        return fetchRows(table).then(function(rows){
+          rows = rows.filter(function(r){ return !isNaN(toNum(r[plan.page])); })
+                     .sort(function(a, b){ return toNum(a[plan.page]) - toNum(b[plan.page]); });
+          return [{ type: 'column', title: 'Words per page', labels: rows.map(function(r){ return String(r[plan.page]); }),
+                    values: rows.map(function(r){ return String(r[plan.text] || '').split(/\s+/).filter(Boolean).length; }) }];
+        });
+      }};
+    }
+  };
+
+  function loadOverviewCharts(tableName){
+    var seq = ++overviewSeq;
+    var msgEl = document.getElementById('overviewChartsMsg');
+    var gridEl = document.getElementById('overviewChartsGrid');
+    function clear(){
+      overviewCharts.forEach(function(c){ if (c) c.destroy(); });
+      overviewCharts = [null, null];
+    }
+    function showMsg(text){
+      if (seq !== overviewSeq) return;
+      clear();
+      overviewDraw = null;
+      seriesSelect.style.display = 'none';
+      gridEl.style.display = 'none';
+      msgEl.style.display = 'block';
+      msgEl.textContent = text;
+    }
+    function render(specs){
+      if (seq !== overviewSeq) return;
+      clear();
+      specs = specs.filter(Boolean);
+      msgEl.style.display = 'none';
+      gridEl.style.display = 'grid';
+      gridEl.style.gridTemplateColumns = specs.length > 1 ? 'minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr)';
+      OVERVIEW_CANVASES.forEach(function(id, i){
+        var box = document.getElementById(id).closest('.chart-box');
+        box.style.display = specs[i] ? '' : 'none';
+        if (!specs[i]) return;
+        box.querySelector('.sub').textContent = specs[i].title;
+        overviewCharts[i] = renderOverviewChart(id, specs[i]);
+      });
+    }
+    function fail(err){ console.error('Overview charts failed:', err); showMsg('Could not load charts for this dataset.'); }
+
+    seriesSelect.style.display = 'none';
+    if (!tableName) return showMsg('No ready dataset to chart yet.');
+
+    fetch(API_BASE + '/datasets/' + encodeURIComponent(tableName) + '/preview?limit=200', { headers: authHeaders() })
+      .then(function(res){ return res.ok ? res.json() : { columns: [], rows: [] }; })
+      .then(function(data){
+        var plan = planCharts(data.columns || [], data.rows || []);
+        if (plan.shape === 'none') return showMsg(plan.message);
+        return Promise.resolve(SHAPES[plan.shape](tableName, plan)).then(function(view){
+          if (seq !== overviewSeq) return;
+          overviewDraw = function(name){ return view.draw(name).then(render).catch(fail); };
+          if (view.series) {
+            if (!view.series.length) return showMsg('Nothing to chart here: no rows with numbers in them.');
+            seriesSelect.innerHTML = view.series.map(function(s){ return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>'; }).join('');
+            seriesSelect.value = view.pick || pickHeadline(view.series);
+            seriesSelect.style.display = '';
+          }
+          return overviewDraw(seriesSelect.value);
+        });
+      })
+      .catch(fail);
+  }
+
+  // Draws each bar's actual value just past its end, so small bars next to
+  // one dominant category stay readable without hovering.
   function overviewValueLabelPlugin(formatValue){
     return {
       id: 'overviewValueLabels',
@@ -1237,48 +1425,43 @@ code{ font-family: var(--font-mono); font-size:.9em; padding: 1px 5px; border-ra
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
         meta.data.forEach(function(bar, i){
-          var value = chart.data.datasets[0].data[i];
-          ctx.fillText(formatValue(value), bar.x + 8, bar.y);
+          ctx.fillText(formatValue(chart.data.datasets[0].data[i]), bar.x + 8, bar.y);
         });
         ctx.restore();
       }
     };
   }
 
-  function renderOverviewBarChart(canvasId, queryResult, groupCol, valueCol, label, formatValue){
-    var rows = (queryResult.rows || []).slice()
-      // Ranked, not alphabetical -- "compare magnitude" reads as a
-      // ranking, and the previous alphabetical order buried the actual
-      // story (one category dwarfing the rest) in an arbitrary sequence.
-      .sort(function(a, b){ return (b[valueCol] || 0) - (a[valueCol] || 0); });
-    var labels = rows.map(function(r){ return String(r[groupCol]); });
-    var values = rows.map(function(r){ return r[valueCol]; });
-    var ctx = document.getElementById(canvasId).getContext('2d');
-    formatValue = formatValue || function(v){ return Math.round(v).toLocaleString(); };
+  var compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+  function formatNumber(v){
+    if (v === null || isNaN(v)) return '';
+    if (Math.abs(v) >= 1e6) return compact.format(v);   // 90B, not 90,000,000,000
+    return Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : (+v.toFixed(2)).toLocaleString();
+  }
 
-    var existing = canvasId === 'overviewCategoryChart' ? overviewCategoryChartInstance : overviewPriceChartInstance;
-    if (existing) existing.destroy();
-
-    var chart = new Chart(ctx, {
-      type: 'bar',
-      data: { labels: labels, datasets: [{ label: label, data: values, backgroundColor: themeColor('--accent'), borderRadius: 4, maxBarThickness: 28 }] },
+  // spec.type: 'line' (trend), 'bar' (horizontal, ranked, labelled), 'column' (vertical, in order)
+  function renderOverviewChart(canvasId, spec){
+    var horizontal = spec.type === 'bar', isLine = spec.type === 'line';
+    var accent = themeColor('--accent');
+    var valueAxis = { beginAtZero: !isLine, grid: { color: themeColor('--border') }, border: { color: themeColor('--border') },
+                      ticks: { color: themeColor('--text-faint'), maxRotation: 0, maxTicksLimit: 6, callback: function(v){ return formatNumber(v); } } };
+    var labelAxis = { grid: { display: false, color: themeColor('--border') }, border: { color: themeColor('--border') },
+                      ticks: { color: themeColor('--text-muted'), autoSkip: true, maxRotation: 0, autoSkip: !horizontal, autoSkipPadding: 24, maxTicksLimit: horizontal ? undefined : 6 } };
+    return new Chart(document.getElementById(canvasId).getContext('2d'), {
+      type: isLine ? 'line' : 'bar',
+      data: { labels: spec.labels, datasets: [{ label: spec.title, data: spec.values, backgroundColor: accent, borderColor: accent,
+                                                borderRadius: 4, maxBarThickness: 28, borderWidth: isLine ? 2 : 0, pointRadius: 0, spanGaps: true }] },
       options: {
-        indexAxis: 'y', // horizontal: long category names (e.g. "Bags, Wallets & Belts")
-                        // read on one line instead of rotating/wrapping and colliding
+        indexAxis: horizontal ? 'y' : 'x', // horizontal bars keep long labels on one line
         responsive: true,
-        layout: { padding: { right: 56 } }, // room for the value label past the longest bar
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { beginAtZero: true, grid: { color: themeColor('--border') }, border: { color: themeColor('--border') },
-               ticks: { color: themeColor('--text-faint'), callback: function(v){ return v.toLocaleString(); } } },
-          y: { grid: { display: false }, border: { color: themeColor('--border') }, ticks: { color: themeColor('--text-muted') } }
-        }
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        layout: { padding: { right: horizontal ? 56 : 8 } },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(c){ return formatNumber(c.raw); } } } },
+        scales: horizontal ? { x: valueAxis, y: labelAxis } : { x: labelAxis, y: valueAxis }
       },
-      plugins: [overviewValueLabelPlugin(formatValue)]
+      plugins: horizontal ? [overviewValueLabelPlugin(formatNumber)] : []
     });
-
-    if (canvasId === 'overviewCategoryChart') overviewCategoryChartInstance = chart;
-    else overviewPriceChartInstance = chart;
   }
 
   /* ============================================================

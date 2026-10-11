@@ -21,4 +21,9 @@ lakehouse_backend/**/delta_log/
 .vscode/
 .idea/
 
-*.ziphs_err_pid*.log
+*.zip
+
+# JVM crash dumps (Spark out of memory)
+hs_err_pid*.log
+replay_pid*.log
+

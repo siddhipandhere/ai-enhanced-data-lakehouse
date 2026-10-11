@@ -178,6 +178,8 @@ def run_analysis(results: pd.DataFrame, total_record_count: int | None = None,
                 # Score statistics say nothing about the question being asked.
                 summary["numeric_summary"] = {k: v for k, v in summary["numeric_summary"].items()
                                               if k not in ("similarity_score", "page_number")}
+                summary["sample_rows"] = [{k: v for k, v in r.items() if k != "similarity_score"}
+                                          for r in summary["sample_rows"]]
 
     summary["query_execution_time_ms"] = timer.elapsed_ms
     logger.info(f"Analysis complete: {summary['record_count']} records, "
@@ -201,16 +203,30 @@ def _run_aggregated_analysis(results: pd.DataFrame, total_record_count: int | No
     with QueryTimer() as timer:
         matched = matched_rows if matched_rows is not None else len(results)
         total = total_record_count if total_record_count is not None else matched
+        rows = results.head(25).to_dict(orient="records")
+        agg = results.attrs.get("aggregation") or {}
+        func, column = agg.get("function"), agg.get("column")
+        if func and column in results.columns and column not in (agg.get("group_by") or []):
+            # "discount_pct: 80" per group reads like a record's own value;
+            # "max_discount_pct: 80" says it is the group's maximum.
+            label = f"{func}_{column}"
+            rows = [{(label if k == column else k): v for k, v in r.items()} for r in rows]
         summary = {
             "aggregated": True,
             "record_count": matched,
             "total_record_count": total,
             "filter_applied": filter_applied,
             "group_count": len(results),
-            "columns": list(results.columns),
-            "aggregated_result": results.head(25).to_dict(orient="records"),
+            "columns": list(rows[0]) if rows else list(results.columns),
+            "aggregated_result": rows,
             "warnings": warnings or [],
         }
+        if func and column:
+            summary["aggregation"] = (f"{func} of {column} per {', '.join(agg.get('group_by') or [])}: each "
+                                      f"aggregated_result value is that group's {func}, not one record's value")
+        if agg.get("matched_stats"):
+            summary["queried_columns"] = [column]
+            summary["queried_column_stats"] = {column: agg["matched_stats"]}
         if filter_applied and total:
             summary["match_rate_pct"] = round(100 * matched / total, 2)
     summary["query_execution_time_ms"] = timer.elapsed_ms

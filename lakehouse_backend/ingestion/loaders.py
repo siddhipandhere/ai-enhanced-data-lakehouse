@@ -318,6 +318,29 @@ def _read_any(spark: SparkSession, path: Path, category: str, ext: str) -> DataF
     return _read_unstructured(spark, path, ext)
 
 
+def _flatten_spark_nested(df: DataFrame) -> DataFrame:
+    """Nested fields from Spark's JSON/Parquet readers -> flat columns: a
+    struct {name, city} becomes customer_name / customer_city, and arrays /
+    maps become JSON text. Left nested, pandas later sees a struct as an
+    unlabelled list (["Mumbai", "Cust0"]) that every JSON response (preview,
+    SQL, search, reports) failed to serialize -> 500."""
+    from pyspark.sql.functions import to_json
+    from pyspark.sql.types import ArrayType, MapType, StructType
+
+    while any(isinstance(f.dataType, (StructType, ArrayType, MapType)) for f in df.schema.fields):
+        cols = []
+        for f in df.schema.fields:
+            c = col(f"`{f.name}`")
+            if isinstance(f.dataType, StructType):
+                cols += [c.getField(s.name).alias(f"{f.name}_{s.name}") for s in f.dataType.fields]
+            elif isinstance(f.dataType, (ArrayType, MapType)):
+                cols.append(to_json(c).alias(f.name))
+            else:
+                cols.append(c)
+        df = df.select(cols)
+    return df
+
+
 def _clean_tabular(df: DataFrame, source_name: str) -> DataFrame:
     """Drops exact duplicate rows and logs null counts per column, in Spark."""
     from pyspark.sql.functions import col, count, when
@@ -422,6 +445,7 @@ def ingest_files_bulk(file_paths: list[str | Path], uploaded_by: str = "system")
             else:
                 df = _read_any(spark, fp, category, ext)
             if category in ("structured", "semi_structured"):
+                df = _flatten_spark_nested(df)
                 df = _clean_tabular(df, fp.name)
             df = df.toDF(*_delta_safe_columns(df.columns))
             record_count = df.count()

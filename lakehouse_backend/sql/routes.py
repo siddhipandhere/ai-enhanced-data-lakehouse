@@ -103,7 +103,8 @@ def run_sql(req: SqlQueryRequest, current_user: User = Depends(get_current_user)
             raise HTTPException(
                 status_code=400, detail=f"Aggregation failed: {e}")
 
-    limit = max(1, min(req.limit, 1000))
+    # ponytail: 5,000 cap so a multi-year daily series fits one chart call.
+    limit = max(1, min(req.limit, 5000))
     page = df.head(limit)
     if req.track:
         registry.record_query(current_user.username)

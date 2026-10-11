@@ -29,8 +29,11 @@ sample_rows (first few result rows):
 If "aggregated" is true, the result is a GROUPED table: "aggregated_result" has one row
 per group with its computed value (already sorted largest first), "group_count" is the
 number of groups, and record_count/total_record_count are the rows that matched the
-filter BEFORE grouping. Answer from aggregated_result (name the top group and its value,
-and compare with the others); for part 3 list every group with its value.
+filter BEFORE grouping. "aggregation" says what each value is (e.g. the MAX per group) --
+name that function when quoting a value, and never describe a group's max/mean as every
+record's value. Answer from aggregated_result (name the top group and its value, and
+compare with the others); for part 3 list every group with its value. For part 2 use
+queried_column_stats, which describe the matched records before grouping.
 
 If "matching_passages" is present, this was a search over documents (PDF pages, emails):
 the passages are the most relevant text found, best match first. Answer the question FROM
@@ -124,6 +127,18 @@ def _fallback_summary(analysis: dict) -> str:
     return "\n\n".join(parts)
 
 
+def _renumber_parts(text: str) -> str:
+    """The model drops parts it has nothing for (e.g. no Examples) but keeps
+    the template's numbers, so reports read 1, 2, 3, 5. Renumber the
+    paragraphs that start with "N." to 1, 2, 3, ... in order."""
+    paras, n = text.split("\n\n"), 0
+    for i, p in enumerate(paras):
+        if re.match(r"\d+\.\s", p):
+            n += 1
+            paras[i] = re.sub(r"^\d+\.", f"{n}.", p, count=1)
+    return "\n\n".join(paras)
+
+
 def generate_report(user_request: str, analysis: dict) -> str:
     try:
         client = _get_client()
@@ -147,7 +162,7 @@ def generate_report(user_request: str, analysis: dict) -> str:
         # and numbered parts the model left empty (e.g. a lone "3.").
         text = text.replace("**", "").replace("__", "")
         text = "\n".join(l for l in text.splitlines() if not re.fullmatch(r"\s*\d+\.\s*", l))
-        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        text = _renumber_parts(re.sub(r"\n{3,}", "\n\n", text).strip())
         if not text:
             raise ValueError(
                 "Model returned empty content (likely exhausted max_tokens on reasoning before answering)")

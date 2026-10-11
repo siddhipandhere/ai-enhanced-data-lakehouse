@@ -7,6 +7,8 @@ Run with:
     uvicorn main:app --reload
 """
 
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -34,6 +36,23 @@ Base.metadata.create_all(bind=engine)
 # it failed + retryable instead of showing "Running" forever.
 registry.recover_interrupted()
 verify_vector_indexes()
+
+
+def _warm_up() -> None:
+    """Starts Spark and loads the text search model in the background, so the
+    first upload/search after startup doesn't stall ~2 minutes on them.
+    The image model (CLIP, ~600 MB) is left to load only when images arrive."""
+    try:
+        from embeddings.embedder import get_model
+        from spark_utils import get_spark
+        get_spark()
+        get_model()
+        logger.info("Warm-up done: Spark and the search model are loaded")
+    except Exception as e:
+        logger.warning(f"Warm-up skipped ({e}); they will load on first use instead")
+
+
+threading.Thread(target=_warm_up, daemon=True).start()
 
 if not config.GROQ_API_KEY:
     logger.warning("GROQ_API_KEY is not set - Reports will use the rule-based planner/summary. "

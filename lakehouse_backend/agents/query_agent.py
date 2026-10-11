@@ -49,6 +49,12 @@ def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) ->
     matched_rows = len(result)  # rows that passed the filter, BEFORE grouping
     aggregated = False
     if plan["group_by"] and plan["agg_column"] and plan["agg_func"]:
+        agg_col = plan["agg_column"]
+        # Stats of the matched rows BEFORE grouping: once grouped, "80" per
+        # category is a max/mean, and the report read it as every record's value.
+        matched_stats = (result[agg_col].describe().to_dict()
+                         if agg_col in result.columns and pd.api.types.is_numeric_dtype(result[agg_col])
+                         and len(result) else None)
         try:
             result = query_engine.aggregate_query(
                 result, group_by=plan["group_by"],
@@ -61,6 +67,8 @@ def execute_plan(plan: dict, df: pd.DataFrame, table_name: str | None = None) ->
             # number (and hides) -- so the report never saw the counts.
             if plan["agg_column"] == config.JOIN_KEY and config.JOIN_KEY in result.columns:
                 result = result.rename(columns={config.JOIN_KEY: "record_count"})
+            result.attrs["aggregation"] = {"function": plan["agg_func"], "column": agg_col,
+                                           "group_by": list(plan["group_by"]), "matched_stats": matched_stats}
         except Exception as e:
             logger.warning(
                 f"Aggregation failed ({e}), returning pre-aggregation result")
