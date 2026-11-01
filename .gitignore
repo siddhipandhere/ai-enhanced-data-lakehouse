@@ -27,3 +27,6 @@ lakehouse_backend/**/delta_log/
 hs_err_pid*.log
 replay_pid*.log
 
+
+# Personal files
+Claude outputs/
